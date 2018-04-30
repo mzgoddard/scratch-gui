@@ -28,11 +28,58 @@ const base = {
         React: 'react',
         ReactDOM: 'react-dom'
     },
+    resolve: {
+        modules: ['node_modules', path.resolve(__dirname, 'node_modules')]
+    },
+    resolveLoader: {
+        modules: ['node_modules', path.resolve(__dirname, 'node_modules')]
+    },
     module: {
         rules: [{
             test: /\.jsx?$/,
             loader: 'babel-loader',
-            include: path.resolve(__dirname, 'src')
+            include: [path.resolve(__dirname, 'src')],
+            options: {
+                // Explicitly disable babelrc so we don't catch various config
+                // in much lower dependencies.
+                babelrc: false,
+                "plugins": [
+                    "syntax-dynamic-import",
+                    "transform-async-to-generator",
+                    "transform-object-rest-spread",
+                    ["react-intl", {
+                        "messagesDir": "./translations/messages/"
+                    }]],
+                "presets": ["env", "react"]
+            }
+        },
+        // scratch-paint babel config
+        {
+            test: /\.jsx?$/,
+            loader: 'babel-loader',
+            include: [/scratch-paint[\\\/]src/],
+            exclude: [path.resolve(__dirname, 'src')],
+            options: {
+                babelrc: false,
+                plugins: [
+                    "transform-object-rest-spread",
+                    ["react-intl", {
+                        "messagesDir": "./translations/messages/"
+                    }]],
+                "presets": ["env", "react"]
+            }
+        },
+        // other scratch packages that are not scratch-paint
+        {
+            test: /\.jsx?$/,
+            loader: 'babel-loader',
+            include: [/scratch-(?!paint)[^\\\/]+[\\\/]src/],
+            exclude: [path.resolve(__dirname, 'src')],
+            options: {
+                babelrc: false,
+                plugins: ["syntax-dynamic-import"],
+                "presets": ["env"]
+            }
         },
         {
             test: /\.css$/,
@@ -61,6 +108,10 @@ const base = {
                     }
                 }
             }]
+        },
+        {
+            test: /node_modules[\\/](linebreak|grapheme-breaker)[\\/].*\.js$/,
+            loader: 'ify-loader'
         }]
     },
     optimization: {
