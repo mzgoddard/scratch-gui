@@ -84,7 +84,10 @@ class Blocks extends React.Component {
         this.onTargetsUpdate = debounce(this.onTargetsUpdate, 100);
         this.toolboxUpdateQueue = [];
     }
-    componentDidMount () {
+    // componentDidMount () {
+    //     setTimeout(() => this.inject(), 1);
+    // }
+    inject () {
         this.ScratchBlocks.FieldColourSlider.activateEyedropper_ = this.props.onActivateColorPicker;
         this.ScratchBlocks.Procedures.externalProcedureDefCallback = this.props.onActivateCustomProcedures;
         this.ScratchBlocks.ScratchMsgs.setLocale(this.props.locale);
@@ -133,6 +136,30 @@ class Blocks extends React.Component {
         );
     }
     componentDidUpdate (prevProps) {
+        if (!this._renderedToolboxXML) {
+            if (!this.props.fontsLoaded) {
+                return;
+            }
+
+            if (this.injecting) {
+                // this.injecting
+                //     .then(() => this.componentDidUpdate(prevProps));
+                return;
+            }
+
+            this.injecting = Promise.resolve()
+                .then(() => Promise.resolve())
+                .then(() => Promise.resolve())
+                .then(() => Promise.resolve())
+                .then(() => Promise.resolve())
+                .then(() => Promise.resolve())
+                .then(() => Promise.resolve())
+                .then(() => Promise.resolve())
+                .then(() => this.inject())
+                // .then(() => this.componentDidUpdate(prevProps));
+            return;
+        }
+
         // If any modals are open, call hideChaff to close z-indexed field editors
         if (this.props.anyModalVisible && !prevProps.anyModalVisible) {
             this.ScratchBlocks.hideChaff();
@@ -141,7 +168,7 @@ class Blocks extends React.Component {
         // Only rerender the toolbox when the blocks are visible and the xml is
         // different from the previously rendered toolbox xml.
         // Do not check against prevProps.toolboxXML because that may not have been rendered.
-        if (this.props.isVisible && this.props.toolboxXML !== this._renderedToolboxXML) {
+        if (this.props.isVisible && this._renderedToolboxXML && this.props.toolboxXML !== this._renderedToolboxXML) {
             // rather than update the toolbox "sync" -- update it in the next frame
             clearTimeout(this.toolboxUpdateTimeout);
             this.toolboxUpdateTimeout = setTimeout(() => {
@@ -602,6 +629,7 @@ const mapStateToProps = state => ({
         state.scratchGui.mode.isFullScreen
     ),
     extensionLibraryVisible: state.scratchGui.modals.extensionLibrary,
+    fontsLoaded: state.scratchGui.fontsLoaded,
     isRtl: state.locales.isRtl,
     locale: state.locales.locale,
     messages: state.locales.messages,

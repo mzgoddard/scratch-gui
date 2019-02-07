@@ -35,6 +35,7 @@ const FontLoaderHOC = function (WrappedComponent) {
                     for (const fontFace of document.fonts.values()) {
                         // Only load fonts from this list. If we load all fonts on the document, we may block on
                         // loading fonts from things like chrome extensions.
+                        console.log(fontFace);
                         if (FONTS.indexOf(fontFace.family) !== -1) {
                             fontPromises.push(fontFace.loaded);
                             fontFace.load();
@@ -50,6 +51,7 @@ const FontLoaderHOC = function (WrappedComponent) {
                     this.props.onSetFontsLoaded();
                 });
             } else {
+                console.log(Array.from(document.fonts.values(), font => (font.load(), [font.family, font.status])));
                 document.onreadystatechange = () => {
                     if (document.readyState !== 'complete') return;
                     document.onreadystatechange = null;
