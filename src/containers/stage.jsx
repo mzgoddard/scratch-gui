@@ -71,6 +71,22 @@ class Stage extends React.Component {
         }
         this.props.vm.attachV2SVGAdapter(new V2SVGAdapter());
         this.props.vm.attachV2BitmapAdapter(new V2BitmapAdapter());
+
+        this._rect = null;
+        this._resizeRenderer = true;
+        const draw = this.props.vm.renderer.draw;
+        this.props.vm.renderer.draw = () => {
+            if (this._resizeRenderer) {
+                this.renderer.resize(this.rect.width, this.rect.height);
+            }
+            return draw.call(this.props.vm.renderer);
+        };
+    }
+    get rect () {
+        if (this._rect === null) {
+            this._rect = this.canvas.getBoundingClientRect();
+        }
+        return this._rect;
     }
     componentDidMount () {
         this.attachRectEvents();
@@ -94,7 +110,7 @@ class Stage extends React.Component {
             this.stopColorPickingLoop();
         }
         this.updateRect();
-        this.renderer.resize(this.rect.width, this.rect.height);
+        this.resizeNextDraw();
     }
     componentWillUnmount () {
         this.detachMouseEvents(this.canvas);
@@ -145,7 +161,10 @@ class Stage extends React.Component {
         window.removeEventListener('scroll', this.updateRect);
     }
     updateRect () {
-        this.rect = this.canvas.getBoundingClientRect();
+        this._rect = null;
+    }
+    resizeNextDraw () {
+        this._resizeRenderer = true;
     }
     getScratchCoords (x, y) {
         const nativeSize = this.renderer.getNativeSize();
