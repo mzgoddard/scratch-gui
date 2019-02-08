@@ -5,6 +5,7 @@ var webpack = require('webpack');
 // Plugins
 var CopyWebpackPlugin = require('copy-webpack-plugin');
 var HtmlWebpackPlugin = require('html-webpack-plugin');
+var MiniCssExtractPlugin = require('mini-css-extract-plugin');
 var UglifyJsPlugin = require('uglifyjs-webpack-plugin');
 
 // PostCss
@@ -56,7 +57,9 @@ const base = {
         {
             test: /\.css$/,
             use: [{
-                loader: 'style-loader'
+                loader: process.env.NODE_ENV === 'production' ?
+                    MiniCssExtractPlugin.loader :
+                    'style-loader',
             }, {
                 loader: 'css-loader',
                 options: {
@@ -84,12 +87,19 @@ const base = {
     },
     optimization: {
         minimizer: [
-            new UglifyJsPlugin({
-                include: /\.min\.js$/
-            })
+            // new UglifyJsPlugin({
+            //     include: /\.min\.js$/
+            // })
         ]
     },
-    plugins: []
+    plugins: [
+        process.env.NODE_ENV === 'production' ?
+            new MiniCssExtractPlugin({
+                filename: '[name].css',
+                chunkFilename: '[id].css'
+            }) :
+            null
+    ].filter(Boolean)
 };
 
 module.exports = [
