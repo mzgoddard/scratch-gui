@@ -1,3 +1,5 @@
+@import "../css/colors.css";
+
 html,
 body,
 .app {
@@ -9,6 +11,10 @@ body,
     /* Setting min height/width makes the UI scroll below those sizes */
     min-width: 1024px;
     min-height: 640px; /* Min height to fit sprite/backdrop button */
+}
+
+body {
+    background-color: $motion-primary;
 }
 
 /* @todo: move globally? Safe / side FX, for blocks particularly? */
