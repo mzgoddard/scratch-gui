@@ -96,6 +96,24 @@ class Blocks extends React.Component {
         );
         this.workspace = this.ScratchBlocks.inject(this.blocks, workspaceConfig);
 
+        const _this = this;
+        const _startCache = this.ScratchBlocks.Field.startCache;
+        this.ScratchBlocks.Field.startCache = function () {
+            // console.log('_startCache');
+            _startCache.apply(this, arguments);
+        };
+        const _stopCache = this.ScratchBlocks.Field.stopCache;
+        this.ScratchBlocks.Field.stopCache = function () {
+            // console.log('_stopCache', _this.ScratchBlocks.Field.cacheWidths_);
+            _stopCache.apply(this, arguments);
+        };
+        const _getCachedWidth = this.ScratchBlocks.Field.getCachedWidth;
+        this.ScratchBlocks.Field.getCachedWidth = function (text) {
+            // console.log(JSON.stringify([text.textContent, text.className.baseVal]));
+            Array.from(new TextEncoder().encode(text.textContent)).some(n => n > 127) && console.log(text.textContent);
+            return _getCachedWidth.apply(this, arguments);
+        };
+
         // Store the xml of the toolbox that is actually rendered.
         // This is used in componentDidUpdate instead of prevProps, because
         // the xml can change while e.g. on the costumes tab.
@@ -196,22 +214,54 @@ class Blocks extends React.Component {
     updateToolbox () {
         this.toolboxUpdateTimeout = false;
 
-        const categoryId = this.workspace.toolbox_.getSelectedCategoryId();
-        const offset = this.workspace.toolbox_.getCategoryScrollOffset();
-        this.workspace.updateToolbox(this.props.toolboxXML);
-        this._renderedToolboxXML = this.props.toolboxXML;
+        if (this._renderedToolboxXML !== this.props.toolboxXML) {
+            try {
+                const textsMap = {};
+                const findEl = function (el) {
+                    // console.log(el.tagName.toLowerCase() && el.className.baseVal);
+                    if (el.tagName.toLowerCase() === 'text' && Array.from(el.classList).includes('blocklyText')) {
+                        textsMap[el.className.baseVal] = el;
+                    }
+                    for (const child of el.children) {
+                        let r = findEl(child);
+                        // if (r) {
+                        //     return r;
+                        // }
+                    }
+                };
+                // debugger;
+                findEl(this.workspace.getFlyout().svgGroup_)
+                const texts = Object.values(textsMap);
+            for (const key in this.ScratchBlocks.ScratchMsgs.locales.en) {
+                const string = this.ScratchBlocks.ScratchMsgs.locales.en[key];
+                for (const sub of string.split(/%\d+/)) {
+                    for (const textEl of texts) {
+                        textEl.textContent = sub.trim().replace(' ', '\u00a0');
+                        this.ScratchBlocks.Field.getCachedWidth(textEl);
+                    }
+                }
+            }
+            } catch (e) {console.error(e)}
+            // console.log(this.ScratchBlocks.ScratchMsgs.locales.en);
 
-        // In order to catch any changes that mutate the toolbox during "normal runtime"
-        // (variable changes/etc), re-enable toolbox refresh.
-        // Using the setter function will rerender the entire toolbox which we just rendered.
-        this.workspace.toolboxRefreshEnabled_ = true;
+            const categoryId = this.workspace.toolbox_.getSelectedCategoryId();
+            const offset = this.workspace.toolbox_.getCategoryScrollOffset();
+            this.workspace.updateToolbox(this.props.toolboxXML);
+            // console.log(this._renderedToolboxXML === this.props.toolboxXML, this.props.toolboxXML);
+            this._renderedToolboxXML = this.props.toolboxXML;
 
-        const currentCategoryPos = this.workspace.toolbox_.getCategoryPositionById(categoryId);
-        const currentCategoryLen = this.workspace.toolbox_.getCategoryLengthById(categoryId);
-        if (offset < currentCategoryLen) {
-            this.workspace.toolbox_.setFlyoutScrollPos(currentCategoryPos + offset);
-        } else {
-            this.workspace.toolbox_.setFlyoutScrollPos(currentCategoryPos);
+            // In order to catch any changes that mutate the toolbox during "normal runtime"
+            // (variable changes/etc), re-enable toolbox refresh.
+            // Using the setter function will rerender the entire toolbox which we just rendered.
+            this.workspace.toolboxRefreshEnabled_ = true;
+
+            const currentCategoryPos = this.workspace.toolbox_.getCategoryPositionById(categoryId);
+            const currentCategoryLen = this.workspace.toolbox_.getCategoryLengthById(categoryId);
+            if (offset < currentCategoryLen) {
+                this.workspace.toolbox_.setFlyoutScrollPos(currentCategoryPos + offset);
+            } else {
+                this.workspace.toolbox_.setFlyoutScrollPos(currentCategoryPos);
+            }
         }
 
         const queue = this.toolboxUpdateQueue;

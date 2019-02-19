@@ -87,9 +87,9 @@ const base = {
     },
     optimization: {
         minimizer: [
-            new UglifyJsPlugin({
-                include: /\.min\.js$/
-            })
+            // new UglifyJsPlugin({
+            //     include: /\.min\.js$/
+            // })
         ]
     },
     plugins: [
