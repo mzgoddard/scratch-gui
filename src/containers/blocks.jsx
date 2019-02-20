@@ -96,23 +96,28 @@ class Blocks extends React.Component {
         );
         this.workspace = this.ScratchBlocks.inject(this.blocks, workspaceConfig);
 
-        const _this = this;
-        const _startCache = this.ScratchBlocks.Field.startCache;
-        this.ScratchBlocks.Field.startCache = function () {
-            // console.log('_startCache');
-            _startCache.apply(this, arguments);
-        };
-        const _stopCache = this.ScratchBlocks.Field.stopCache;
-        this.ScratchBlocks.Field.stopCache = function () {
-            // console.log('_stopCache', _this.ScratchBlocks.Field.cacheWidths_);
-            _stopCache.apply(this, arguments);
-        };
-        const _getCachedWidth = this.ScratchBlocks.Field.getCachedWidth;
-        this.ScratchBlocks.Field.getCachedWidth = function (text) {
-            // console.log(JSON.stringify([text.textContent, text.className.baseVal]));
-            Array.from(new TextEncoder().encode(text.textContent)).some(n => n > 127) && console.log(text.textContent);
-            return _getCachedWidth.apply(this, arguments);
-        };
+        // const _this = this;
+        // const _startCache = this.ScratchBlocks.Field.startCache;
+        // this.ScratchBlocks.Field.startCache = function () {
+        //     // console.log('_startCache');
+        //     _startCache.apply(this, arguments);
+        // };
+        // const _stopCache = this.ScratchBlocks.Field.stopCache;
+        // this.ScratchBlocks.Field.stopCache = function () {
+        //     // console.log('_stopCache', _this.ScratchBlocks.Field.cacheWidths_);
+        //     _stopCache.apply(this, arguments);
+        // };
+        // const _getCachedWidth = this.ScratchBlocks.Field.getCachedWidth;
+        // this.ScratchBlocks.Field.getCachedWidth = function (text) {
+        //     // console.log(JSON.stringify([text.textContent, text.className.baseVal]));
+        //     // Array.from(new TextEncoder().encode(text.textContent)).some(n => n > 127) && console.log(text.textContent);
+        //     if (!_this.ScratchBlocks.Field._caching) {
+        //         const textElement = text;
+        //         console.log(textElement.textContent, textElement.className.baseVal);
+        //         // console.log(textElement.textContent + '\n' + textElement.className.baseVal, _this.ScratchBlocks.Field.cacheWidths_[textElement.textContent + '\n' + textElement.className.baseVal], new TextEncoder().encode(textElement.textContent + '\n' + textElement.className.baseVal));
+        //     }
+        //     return _getCachedWidth.apply(this, arguments);
+        // };
 
         // Store the xml of the toolbox that is actually rendered.
         // This is used in componentDidUpdate instead of prevProps, because
@@ -219,7 +224,11 @@ class Blocks extends React.Component {
                 const textsMap = {};
                 const findEl = function (el) {
                     // console.log(el.tagName.toLowerCase() && el.className.baseVal);
-                    if (el.tagName.toLowerCase() === 'text' && Array.from(el.classList).includes('blocklyText')) {
+                    if (
+                        el.tagName.toLowerCase() === 'text' &&
+                        el.className.baseVal === 'blocklyText'
+                        // Array.from(el.classList).includes('blocklyText')
+                    ) {
                         textsMap[el.className.baseVal] = el;
                     }
                     for (const child of el.children) {
@@ -232,15 +241,57 @@ class Blocks extends React.Component {
                 // debugger;
                 findEl(this.workspace.getFlyout().svgGroup_)
                 const texts = Object.values(textsMap);
-            for (const key in this.ScratchBlocks.ScratchMsgs.locales.en) {
-                const string = this.ScratchBlocks.ScratchMsgs.locales.en[key];
-                for (const sub of string.split(/%\d+/)) {
-                    for (const textEl of texts) {
-                        textEl.textContent = sub.trim().replace(' ', '\u00a0');
-                        this.ScratchBlocks.Field.getCachedWidth(textEl);
+                // console.log(texts);
+                this.ScratchBlocks.Field._caching = true;
+                // console.log(this.props.toolboxXML);
+                // console.log(new DOMParser().parseFromString(this.props.toolboxXML, 'application/xml'));
+                // console.log(Object.entries(this.ScratchBlocks.ScratchMsgs.locales.en));
+                const toolbox = new DOMParser().parseFromString(this.props.toolboxXML, 'application/xml');
+                const _this = this;
+                const sweep = function (el) {
+                    if (el.tagName.toLowerCase() === 'block') {
+                        const type = el.getAttribute('type');
+                        const key = type.toUpperCase();
+                        const string = _this.ScratchBlocks.ScratchMsgs.locales.en[key];
+                        if (!string) {
+                            return;
+                        }
+                        for (const _sub of string.split(/\%\d+/)) {
+                            const sub = _sub.trim().replace(/ /g, '\u00a0');
+                            // console.log(_sub, sub, string, new TextEncoder().encode(_sub), new TextEncoder().encode(sub));
+                            for (const textEl of texts) {
+                                textEl.textContent = sub;
+                                // console.log(textEl.textContent.split('').map(c => c.charCodeAt(0)));
+                                // if (sub === 'set size to') {
+                                //     console.log('caching', textEl.textContent, textEl.className.baseVal);
+                                // }
+                                _this.ScratchBlocks.Field.getCachedWidth(textEl);
+                            }
+                        }
+                    } else {
+                        for (const child of el.children) {
+                            sweep(child);
+                        }
                     }
-                }
-            }
+                };
+                Array.from(toolbox.children).forEach(sweep);
+
+            // for (const key in this.ScratchBlocks.ScratchMsgs.locales.en) {
+            //     const string = this.ScratchBlocks.ScratchMsgs.locales.en[key];
+            //     for (const _sub of string.split(/\%\d+/)) {
+            //         const sub = _sub.trim().replace(/ /g, '\u00a0');
+            //         // console.log(_sub, sub, string, new TextEncoder().encode(_sub), new TextEncoder().encode(sub));
+            //         for (const textEl of texts) {
+            //             textEl.textContent = sub;
+            //             // console.log(textEl.textContent.split('').map(c => c.charCodeAt(0)));
+            //             // if (sub === 'set size to') {
+            //             //     console.log('caching', textEl.textContent, textEl.className.baseVal);
+            //             // }
+            //             this.ScratchBlocks.Field.getCachedWidth(textEl);
+            //         }
+            //     }
+            // }
+            this.ScratchBlocks.Field._caching = false;
             } catch (e) {console.error(e)}
             // console.log(this.ScratchBlocks.ScratchMsgs.locales.en);
 
