@@ -1,0 +1,19 @@
+.player_stage-only_3WHZN {
+    width: calc(480px + 1rem);
+}
+
+.player_editor_wkTja {
+    position: absolute;
+    top: 0;
+    left: 0;
+    height: 100%;
+    width: 100%;
+}
+
+.player_stage-only_3WHZN * {
+    -webkit-box-sizing: border-box;
+            box-sizing: border-box;
+}
+
+
+/*# sourceMappingURL=4.css.map*/
