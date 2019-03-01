@@ -1,0 +1,1 @@
+{"version":3,"file":"1.css","sources":["webpack://GUI/./src/playground/blocks-only.css"],"sourcesContent":[".blocks-only_controls_2GEvs {\n    position: absolute;\n    z-index: 2;\n    top: 10px;\n    right: 15px;\n}\n"],"mappings":"AAAA;AACA;AACA;AACA;AACA;AACA;;","sourceRoot":""}
