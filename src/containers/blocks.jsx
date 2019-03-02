@@ -43,6 +43,213 @@ const DroppableBlocks = DropAreaHOC([
     DragConstants.BACKPACK_CODE
 ])(BlocksComponent);
 
+let textRoot;
+const precacheTextWidths = ({ScratchBlocks, xml}) => {
+    const svgTag = type => document.createElementNS("http://www.w3.org/2000/svg", type);
+
+    if (!textRoot) {
+        const _getCachedWidth = ScratchBlocks.Field.getCachedWidth;
+        ScratchBlocks.Field.getCachedWidth = function (text) {
+            // _getCachedWidth.apply(this, arguments);
+            // console.log(text.textContent, text.className.baseVal, ScratchBlocks.Field.cacheWidths_[text.textContent + '\n' + text.className.baseVal]);
+
+            if (!ScratchBlocks.Field._caching && !ScratchBlocks.Field.cacheWidths_[text.textContent + '\n' + text.className.baseVal]) {
+                const textElement = text;
+                console.log('uncached', textElement.textContent, textElement.className.baseVal, ScratchBlocks.Field.cacheWidths_[text.textContent + '\n' + text.className.baseVal]);
+            }
+            return _getCachedWidth.apply(this, arguments);
+        };
+
+        textRoot = svgTag('svg');
+        document.body.appendChild(textRoot);
+        console.log(ScratchBlocks.ScratchMsgs.locales.en);
+        console.log(ScratchBlocks.Blocks);
+        console.log(ScratchBlocks.Msg);
+        ScratchBlocks.Field.startCache();
+    }
+
+    const blocklyText = text => {
+        const tag = svgTag('text');
+        tag.setAttribute('class', 'blocklyText');
+        tag.textContent = text;
+        return tag;
+    }
+
+    const blocklyDropdownText = text => {
+        const tag = svgTag('text');
+        tag.setAttribute('class', 'blocklyText blocklyDropdownText');
+        tag.textContent = text;
+        return tag;
+    }
+
+    const blocklyFlyoutLabelText = text => {
+        const tag = svgTag('text');
+        tag.setAttribute('class', 'blocklyFlyoutLabelText');
+        tag.textContent = text;
+        return tag;
+    }
+
+    const dom = new DOMParser().parseFromString(xml, 'application/xml');
+
+    const textGroup = svgTag('g');
+
+    const justCache = (type, text) => {
+        if (!text) {
+            return;
+        }
+        textGroup.appendChild(type(text));
+    };
+
+    const cacheOne = (type, text) => {
+        if (!text) {
+            return;
+        }
+        textGroup.appendChild(type(text.replace(/ /g, '\u00a0')));
+    };
+
+    const cacheSplit = (type, text) => {
+        if (!text) {
+            return;
+        }
+        for (const _sub of text.split(/\%\d+/)) {
+            const sub = _sub.trim().replace(/ /g, '\u00a0');
+            textGroup.appendChild(type(sub));
+        }
+    };
+
+    const cacheProccode = (type, text) => {
+        if (!text) {
+            return;
+        }
+        for (const _sub of text.split(/\%[bns]/)) {
+            const sub = _sub.trim().replace(/ /g, '\u00a0');
+            textGroup.appendChild(type(sub));
+        }
+    };
+
+    const cacheLocalized = (type, key) => {
+        justCache(type, ScratchBlocks.Msg[key.toUpperCase()]);
+    };
+
+    const cacheBlock = id => {
+        try {
+        ScratchBlocks.Blocks[id].init.call({
+            jsonInit(def) {
+                if (def.message0) {
+                    cacheSplit(blocklyText, def.message0);
+                }
+                if (def.message1) {
+                    cacheSplit(blocklyText, def.message1);
+                }
+                if (def.message2) {
+                    cacheSplit(blocklyText, def.message2);
+                }
+                if (def.message3) {
+                    cacheSplit(blocklyText, def.message3);
+                }
+                if (def.args0) {
+                    for (const arg of def.args0) {
+                        if (arg.variable) {
+                            cacheOne(blocklyDropdownText, arg.variable);
+                        }
+                        if (arg.type === 'field_dropdown') {
+                            let {options} = arg;
+                            if (typeof options === 'function') {
+                                options = options();
+                            }
+                            for (const option of options) {
+                                cacheOne(blocklyDropdownText, option[0]);
+                            }
+                        }
+                    }
+                }
+            }
+        });
+        } catch (e) {
+            console.log('cacheBlock', id, e);
+        }
+    };
+
+    cacheOne(blocklyText, ' ');
+    cacheOne(blocklyDropdownText, ' ');
+    justCache(blocklyText, ScratchBlocks.Msg.NEW_VARIABLE);
+    justCache(blocklyText, ScratchBlocks.Msg.NEW_LIST);
+    justCache(blocklyText, ScratchBlocks.Msg.NEW_PROCEDURE);
+
+    const sweep = function (el) {
+        // console.log(el);
+        if (ScratchBlocks.Blocks[el.getAttribute('type')]) {
+            try {
+                cacheBlock(el.getAttribute('type'));
+            } catch (e) {
+                console.log('error', el, e);
+            }
+        }
+        if (el.tagName.toLowerCase() === 'mutation') {
+            cacheProccode(blocklyText, el.getAttribute('proccode'));
+        } else if (el.tagName.toLowerCase() === 'category') {
+            cacheLocalized(blocklyFlyoutLabelText, `CATEGORY_${el.getAttribute('id')}`);
+        } else if (el.tagName.toLowerCase() === 'label') {
+            justCache(blocklyFlyoutLabelText, el.getAttribute('text'));
+        } else if (el.tagName.toLowerCase() === 'field') {
+            cacheOne(blocklyText, el.textContent);
+        } else if (el.tagName.toLowerCase() === 'variable') {
+            cacheOne(blocklyText, el.textContent);
+            cacheOne(blocklyDropdownText, el.textContent);
+
+            if (el.getAttribute('type') === '') {
+                cacheBlock('data_setvariableto');
+                cacheBlock('data_changevariableby');
+                cacheBlock('data_showvariable');
+                cacheBlock('data_hidevariable');
+            } else if (el.getAttribute('type') === 'list') {
+                cacheBlock('data_addtolist');
+                cacheBlock('data_deleteoflist');
+                cacheBlock('data_deletealloflist');
+                cacheBlock('data_insertatlist');
+                cacheBlock('data_replaceitemoflist');
+                cacheBlock('data_itemoflist');
+                cacheBlock('data_itemnumoflist');
+                cacheBlock('data_lengthoflist');
+                cacheBlock('data_listcontainsitem');
+                cacheBlock('data_showlist');
+                cacheBlock('data_hidelist');
+            }
+        }
+        for (const child of el.children) {
+            sweep(child);
+        }
+    };
+
+    let mainWorkspace = ScratchBlocks.mainWorkspace;
+    if (!mainWorkspace) {
+        ScratchBlocks.mainWorkspace = {
+            options: {
+                pathToMedia: ''
+            }
+        };
+    }
+
+    Array.from(dom.children).forEach(sweep);
+
+    if (!mainWorkspace) {
+        ScratchBlocks.mainWorkspace = mainWorkspace;
+    }
+
+    textRoot.appendChild(textGroup);
+
+    ScratchBlocks.Field._caching = true;
+    for (const element of textGroup.children) {
+        ScratchBlocks.Field.getCachedWidth(element);
+    }
+    ScratchBlocks.Field._caching = false;
+
+    textRoot.removeChild(textGroup);
+
+    console.log(textGroup);
+    console.log(dom);
+};
+
 class Blocks extends React.Component {
     constructor (props) {
         super(props);
@@ -88,6 +295,8 @@ class Blocks extends React.Component {
         this.ScratchBlocks.FieldColourSlider.activateEyedropper_ = this.props.onActivateColorPicker;
         this.ScratchBlocks.Procedures.externalProcedureDefCallback = this.props.onActivateCustomProcedures;
         this.ScratchBlocks.ScratchMsgs.setLocale(this.props.locale);
+
+        precacheTextWidths({ScratchBlocks: this.ScratchBlocks, xml: this.props.toolboxXML});
 
         const workspaceConfig = defaultsDeep({},
             Blocks.defaultOptions,
@@ -199,6 +408,8 @@ class Blocks extends React.Component {
 
         const categoryId = this.workspace.toolbox_.getSelectedCategoryId();
         const offset = this.workspace.toolbox_.getCategoryScrollOffset();
+
+        precacheTextWidths({ScratchBlocks: this.ScratchBlocks, xml: this.props.toolboxXML});
         this.workspace.updateToolbox(this.props.toolboxXML);
         this._renderedToolboxXML = this.props.toolboxXML;
 
@@ -285,12 +496,21 @@ class Blocks extends React.Component {
     onWorkspaceMetricsChange () {
         const target = this.props.vm.editingTarget;
         if (target && target.id) {
+            const newMetric = {
+                scrollX: this.workspace.scrollX,
+                scrollY: this.workspace.scrollY,
+                scale: this.workspace.scale
+            };
+            const oldMetric = this.state.workspaceMetrics[target.id];
+            if (oldMetric && (
+                oldMetric.scrollX !== newMetric.scrollX ||
+                oldMetric.scrollY !== newMetric.scrollY ||
+                oldMetric.scale !== newMetric.scale
+            )) {
+                return;
+            }
             const workspaceMetrics = Object.assign({}, this.state.workspaceMetrics, {
-                [target.id]: {
-                    scrollX: this.workspace.scrollX,
-                    scrollY: this.workspace.scrollY,
-                    scale: this.workspace.scale
-                }
+                [target.id]: newMetric
             });
             this.setState({workspaceMetrics});
         }
@@ -345,7 +565,9 @@ class Blocks extends React.Component {
 
         // Remove and reattach the workspace listener (but allow flyout events)
         this.workspace.removeChangeListener(this.props.vm.blockListener);
+        precacheTextWidths({ScratchBlocks: this.ScratchBlocks, xml: data.xml});
         const dom = this.ScratchBlocks.Xml.textToDom(data.xml);
+        // console.log(dom);
         try {
             this.ScratchBlocks.Xml.clearWorkspaceAndLoadFromXml(dom, this.workspace);
         } catch (error) {
