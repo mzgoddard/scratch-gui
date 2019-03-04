@@ -211,6 +211,33 @@ export default function (vm) {
         this.jsonInit(json);
     };
 
+    const localeCompareCache = {};
+    const localeCompareSensitiveNumeric = function (str1, str2) {
+        const key = `${str1}:${str2}`;
+        if (!localeCompareCache[key]) {
+            localeCompareCache[key] = str1.localeCompare(str2, [], {
+                sensitivity: 'base',
+                numeric: true
+            });
+        }
+        localeCompareCache[key];
+    };
+
+    let collatorLanguage = '';
+    let collator = null;
+    let comparator = null;
+    const getLocaleCompare = () => {
+        if (collatorLanguage !== navigator.language) {
+            collatorLanguage = navigator.language;
+            collator = new Intl.Collator([], {
+                sensitivity: 'base',
+                numeric: true
+            });
+            comparator = collator.compare.bind(collator);
+        }
+        return comparator;
+    };
+
     ScratchBlocks.Blocks.sensing_of.init = function () {
         const blockId = this.id;
         // Function that fills in menu for the first input in the sensing block.
@@ -246,10 +273,13 @@ export default function (vm) {
                     lookupBlocks = vm.runtime.flyoutBlocks;
                 }
                 const sort = function (options) {
-                    options.sort((str1, str2) => str1.localeCompare(str2, [], {
-                        sensitivity: 'base',
-                        numeric: true
-                    }));
+                    // sort.count = sort.count ? sort.count + 1 : 1;
+                    // console.log(sort.count);
+                    // options.sort((str1, str2) => str1.localeCompare(str2, [], {
+                    //     sensitivity: 'base',
+                    //     numeric: true
+                    // }));
+                    options.sort(getLocaleCompare());
                 };
                 // Get all the stage variables (no lists) so we can add them to menu when the stage is selected.
                 const stageVariableOptions = vm.runtime.getTargetForStage().getAllVariableNamesInScopeByType('');

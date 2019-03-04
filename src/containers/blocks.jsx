@@ -232,23 +232,29 @@ const hijackCreateSvgElement = ScratchBlocks => {
             }
             console.log(id, templates[id].keys, attrs);
         }
-        var e = templates[id].cloneNode(true);
-        // for (var i = 0; i < templates[id].keys; i++) {
-        //     var keys = templates[id].keys[i];
-        //     e.attributes[keys[0]].value = attrs[keys[1]];
+        const t = templates[id];
+        var e = t.cloneNode();
+        const keys = t.keys;
+        for (var i = 0; i < keys.length; i++) {
+            e.attributes[i].value = attrs[keys[i][1]];
+        }
+        // for (var key in attrs) {
+        //     const item = e.attributes.getNamedItem(key);
+        //     if (!item) {
+        //         debugger;
+        //     }
+        //     item.value = attrs[key];
         // }
         // for (var key in attrs) {
-        //     e.attributes.getNamedItem(key).value = attrs[key];
+        //     if (!attrTemplates[key]) {
+        //         attrTemplates[key] = document.createAttribute(key);
+        //     }
+        //     var node = attrTemplates[key].cloneNode();
+        //     node.value = attrs[key];
+        //     e.attributes.setNamedItem(node);
+        //   // e.setAttribute(key, attrs[key]);
         // }
-        for (var key in attrs) {
-            if (!attrTemplates[key]) {
-                attrTemplates[key] = document.createAttribute(key);
-            }
-            var node = attrTemplates[key].cloneNode();
-            node.value = attrs[key];
-            e.attributes.setNamedItem(node);
-          // e.setAttribute(key, attrs[key]);
-        }
+
       //   if (!nodeTemplates[name]) {
       //       nodeTemplates[name] = document.createElementNS(ScratchBlocks.SVG_NS, name);
       //   }
@@ -277,6 +283,39 @@ const hijackCreateSvgElement = ScratchBlocks => {
     };
 };
 
+const hijackTextToDOM = function (ScratchBlocks) {
+    // const root = document.createElementNS('text/xml', 'xml');
+    const root = new DOMParser().parseFromString('<xml></xml>', 'text/xml').firstChild;
+    const range = document.createRange();
+    range.selectNodeContents(root);
+    ScratchBlocks.Xml.textToDom = function(text) {
+        // console.log(range.createContextualFragment(text).firstChild);
+        root.innerHTML = text;
+        return root.firstChild;
+        // console.log(root.firstChild);
+        // return range.createContextualFragment(text).firstChild;
+        var oParser = new DOMParser();
+        var dom = oParser.parseFromString(text, 'text/xml');
+        // The DOM should have one and only one top-level node, an XML tag.
+        if (!dom || !dom.firstChild ||
+            dom.firstChild.nodeName.toLowerCase() != 'xml' ||
+            dom.firstChild !== dom.lastChild) {
+                // Whatever we got back from the parser is not XML.
+                goog.asserts.fail('Blockly.Xml.textToDom did not obtain a valid XML tree.');
+        }
+        console.log(dom.firstChild);
+        return dom.firstChild;
+    };
+};
+
+const hijackCompareStrings = function (ScratchBlocks) {
+    const collator = new Intl.Collator([], {
+        sensitivity: 'base',
+        numeric: true
+    });
+    ScratchBlocks.scratchBlocksUtils.compareStrings = collator.compare.bind(collator);
+};
+
 let textRoot;
 let textIdCache = {};
 const precacheTextWidths = ({ScratchBlocks, xml}) => {
@@ -295,22 +334,33 @@ const precacheTextWidths = ({ScratchBlocks, xml}) => {
             return _getCachedWidth.apply(this, arguments);
         };
 
-        const getHeight = ScratchBlocks.Toolbox.CategoryMenu.prototype.getHeight;
-        ScratchBlocks.Toolbox.CategoryMenu.prototype.getHeight = function () {
-            console.log('CategoryMenu.getHeight');
-            return getHeight.call(this);
-        };
+        // const getHeight = ScratchBlocks.Toolbox.CategoryMenu.prototype.getHeight;
+        // ScratchBlocks.Toolbox.CategoryMenu.prototype.getHeight = function () {
+        //     console.log('CategoryMenu.getHeight');
+        //     return getHeight.call(this);
+        // };
 
         textRoot = svgTag('svg');
         document.body.appendChild(textRoot);
         console.log(ScratchBlocks.ScratchMsgs.locales.en);
         console.log(ScratchBlocks.Blocks);
         console.log(ScratchBlocks.Msg);
+
         // hijackTokenize(ScratchBlocks);
-        try {
-        hijackCreateSvgElement(ScratchBlocks);
-        } catch (e) {console.error('hijackCreateSvgElement', e);}
+        // hijackCreateSvgElement(ScratchBlocks);
+        // hijackTextToDOM(ScratchBlocks);
+        hijackCompareStrings(ScratchBlocks);
+
         ScratchBlocks.Field.startCache();
+
+        // const DataCategory = ScratchBlocks.DataCategory;
+        // ScratchBlocks.DataCategory = function (...args) {
+        //     const result = DataCategory.call(this, ...args);
+        //     console.log(result);
+        //     return result;
+        // };
+        // Object.assign(ScratchBlocks.DataCategory, DataCategory);
+
     }
 
     const blocklyText = text => {
@@ -346,7 +396,8 @@ const precacheTextWidths = ({ScratchBlocks, xml}) => {
 
     const add = (type, text) => {
         const key = text + '\n' + type.class;
-        if (!ScratchBlocks.Field.cacheWidths_[key]) {
+        if (!textIdCache[key]) {
+            textIdCache[key] = true;
             textGroup.appendChild(type(text));
         }
     };
@@ -386,7 +437,11 @@ const precacheTextWidths = ({ScratchBlocks, xml}) => {
     };
 
     const cacheLocalized = (type, key) => {
-        justCache(type, ScratchBlocks.Msg[key.toUpperCase()]);
+        let _key = key.toUpperCase();
+        if (_key.startsWith('BKY_')) {
+            _key = _key.substring(4);
+        }
+        justCache(type, ScratchBlocks.Msg[_key]);
     };
 
     const cacheBlock = (type, id) => {
@@ -455,7 +510,12 @@ const precacheTextWidths = ({ScratchBlocks, xml}) => {
         if (el.tagName.toLowerCase() === 'mutation') {
             cacheProccode(blocklyText, el.getAttribute('proccode'));
         } else if (el.tagName.toLowerCase() === 'category') {
-            cacheLocalized(blocklyFlyoutLabelText, `CATEGORY_${el.getAttribute('id')}`);
+            let name = el.getAttribute('name');
+            if (name[0] === '%') {
+                cacheLocalized(blocklyFlyoutLabelText, name.substring(2, name.length - 1));
+            } else {
+                justCache(blocklyFlyoutLabelText, name);
+            }
         } else if (el.tagName.toLowerCase() === 'label') {
             justCache(blocklyFlyoutLabelText, el.getAttribute('text'));
         } else if (el.tagName.toLowerCase() === 'field') {
@@ -470,6 +530,9 @@ const precacheTextWidths = ({ScratchBlocks, xml}) => {
                 cacheBlock('data_showvariable');
                 cacheBlock('data_hidevariable');
             } else if (el.getAttribute('type') === 'list') {
+                cacheLocalized(blocklyText, 'DEFAULT_LIST_ITEM');
+                justCache(blocklyText, 1);
+
                 cacheBlock('data_addtolist');
                 cacheBlock('data_deleteoflist');
                 cacheBlock('data_deletealloflist');
