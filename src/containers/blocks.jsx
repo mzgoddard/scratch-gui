@@ -43,7 +43,242 @@ const DroppableBlocks = DropAreaHOC([
     DragConstants.BACKPACK_CODE
 ])(BlocksComponent);
 
+const hijackTokenize = ScratchBlocks => {
+    ScratchBlocks.utils.tokenizeInterpolation_ = function(message,
+        parseInterpolationTokens) {
+      var tokens = [];
+      // var chars = message.split('');
+      // chars.push('');  // End marker.
+      // Parse the message with a finite state machine.
+      // 0 - Base case.
+      // 1 - % found.
+      // 2 - Digit found.
+      // 3 - Message ref found.
+      var state = 0;
+      var buffer = [];
+      var subStart = 0;
+      var number = null;
+      for (var i = 0; i < message.length; i++) {
+        var c = message[i];
+        if (state == 0) {
+          if (c == '%') {
+            // var text = buffer.join('');
+            var text = message.substring(subStart, i);
+            if (text) {
+              tokens.push(text);
+            }
+            // buffer.length = 0;
+            subStart = i + 1;
+            state = 1;  // Start escape.
+          } else {
+            // buffer.push(c);  // Regular char.
+            for (i++; i < message.length; i++) {
+                if (message[i] == '%') {
+                    i--;
+                    break;
+                }
+            }
+          }
+        } else if (state == 1) {
+          if (c == '%') {
+            // buffer.push(c);  // Escaped %: %%
+            state = 0;
+          } else if (parseInterpolationTokens && '0' <= c && c <= '9') {
+            state = 2;
+            // number = c;
+            // var text = buffer.join('');
+            var text = message.substring(subStart, i);
+            if (text) {
+              tokens.push(text);
+            }
+            // buffer.length = 0;
+            subStart = i;
+          } else if (c == '{') {
+            subStart = i + 1;
+            state = 3;
+          } else {
+            // buffer.push('%', c);  // Not recognized. Return as literal.
+            subStart -= 1;
+            state = 0;
+          }
+        } else if (state == 2) {
+          if ('0' <= c && c <= '9') {
+            // number += c;  // Multi-digit number.
+            for (i++; i < message.length; i++) {
+                c = message[i];
+                if ('0' <= c && c <= '9') {
+                    i--;
+                    break;
+                }
+            }
+          } else {
+            // tokens.push(parseInt(number, 10));
+            tokens.push(parseInt(message.substring(subStart, i), 10));
+            subStart = i;
+            i--;  // Parse this char again.
+            state = 0;
+          }
+        } else if (state == 3) {  // String table reference
+          if (c == '') {
+            // Premature end before closing '}'
+            // buffer.splice(0, 0, '%{'); // Re-insert leading delimiter
+            subStart -= 2;
+            i--;  // Parse this char again.
+            state = 0; // and parse as string literal.
+          } else if (c != '}') {
+            // buffer.push(c);
+            for (i++; i < message.length; i++) {
+                if (message[i] == '}' || message[i] == '') {
+                    i--;
+                    break;
+                }
+            }
+          } else  {
+            // var rawKey = buffer.join('');
+            var rawKey = message.substring(subStart, i);
+            if (/[a-zA-Z][a-zA-Z0-9_]*/.test(rawKey)) {  // Strict matching
+              // Found a valid string key. Attempt case insensitive match.
+              var keyUpper = rawKey.toUpperCase();
+
+              // BKY_ is the prefix used to namespace the strings used in Blockly
+              // core files and the predefined blocks in ../blocks/. These strings
+              // are defined in ../msgs/ files.
+              var bklyKey = keyUpper.startsWith('BKY_') ?
+                  keyUpper.substring(4) : null;
+              if (bklyKey && bklyKey in ScratchBlocks.Msg) {
+                var rawValue = ScratchBlocks.Msg[bklyKey];
+                if (typeof rawValue === 'string') {
+                  // Attempt to dereference substrings, too, appending to the end.
+                  Array.prototype.push.apply(tokens,
+                      ScratchBlocks.utils.tokenizeInterpolation(rawValue));
+                } else if (parseInterpolationTokens) {
+                  // When parsing interpolation tokens, numbers are special
+                  // placeholders (%1, %2, etc). Make sure all other values are
+                  // strings.
+                  tokens.push(String(rawValue));
+                } else {
+                  tokens.push(rawValue);
+                }
+              } else {
+                // No entry found in the string table. Pass reference as string.
+                tokens.push('%{' + rawKey + '}');
+              }
+              // buffer.length = 0;  // Clear the array
+              subStart = i + 1;
+              state = 0;
+            } else {
+              tokens.push('%{' + rawKey + '}');
+              // buffer.length = 0;
+              subStart = i + 1;
+              state = 0; // and parse as string literal.
+            }
+          }
+        }
+      }
+      // var text = buffer.join('');
+      var text = message.substring(subStart);
+      if (text) {
+        if (state === 2) {
+            tokens.push(parseInt(text, 10));
+        } else {
+            tokens.push(text);
+        }
+      }
+
+      // Merge adjacent text tokens into a single string.
+      var mergedTokens = [];
+      buffer.length = 0;
+      for (var i = 0; i < tokens.length; ++i) {
+        if (typeof tokens[i] == 'string') {
+          buffer.push(tokens[i]);
+        } else {
+          text = buffer.join('');
+          if (text) {
+            mergedTokens.push(text);
+          }
+          buffer.length = 0;
+          mergedTokens.push(tokens[i]);
+        }
+      }
+      text = buffer.join('');
+      if (text) {
+        mergedTokens.push(text);
+      }
+      buffer.length = 0;
+
+      // console.log(message, mergedTokens);
+      return mergedTokens;
+    };
+};
+
+const hijackCreateSvgElement = ScratchBlocks => {
+    const runtimeStyle = Boolean(document.body.runtimeStyle);
+    const nodeTemplates = {};
+    const attrTemplates = {};
+    const templates = {};
+    ScratchBlocks.utils.createSvgElement = function(name, attrs, parent /*, opt_workspace */) {
+        var id = name;
+        for (var key in attrs) {
+            id += ':' + key;
+        }
+        if (!templates[id]) {
+            templates[id] = document.createElementNS(ScratchBlocks.SVG_NS, name);
+            templates[id].keys = [];
+            for (var key in attrs) {
+                const attr = document.createAttribute(key);
+                attr.value = attrs[key];
+                templates[id].attributes.setNamedItem(attr);
+                templates[id].keys.push([key.toLowerCase(), key]);
+            }
+            console.log(id, templates[id].keys, attrs);
+        }
+        var e = templates[id].cloneNode(true);
+        // for (var i = 0; i < templates[id].keys; i++) {
+        //     var keys = templates[id].keys[i];
+        //     e.attributes[keys[0]].value = attrs[keys[1]];
+        // }
+        // for (var key in attrs) {
+        //     e.attributes.getNamedItem(key).value = attrs[key];
+        // }
+        for (var key in attrs) {
+            if (!attrTemplates[key]) {
+                attrTemplates[key] = document.createAttribute(key);
+            }
+            var node = attrTemplates[key].cloneNode();
+            node.value = attrs[key];
+            e.attributes.setNamedItem(node);
+          // e.setAttribute(key, attrs[key]);
+        }
+      //   if (!nodeTemplates[name]) {
+      //       nodeTemplates[name] = document.createElementNS(ScratchBlocks.SVG_NS, name);
+      //   }
+      // // var e = /** @type {!SVGElement} */
+      // //     (document.createElementNS(ScratchBlocks.SVG_NS, name));
+      // var e = nodeTemplates[name].cloneNode();
+      // for (var key in attrs) {
+      //     if (!attrTemplates[key]) {
+      //         attrTemplates[key] = document.createAttribute(key);
+      //     }
+      //     var node = attrTemplates[key].cloneNode();
+      //     node.value = attrs[key];
+      //     e.attributes.setNamedItem(node);
+      //   // e.setAttribute(key, attrs[key]);
+      // }
+      // IE defines a unique attribute "runtimeStyle", it is NOT applied to
+      // elements created with createElementNS. However, Closure checks for IE
+      // and assumes the presence of the attribute and crashes.
+      if (runtimeStyle) {  // Indicates presence of IE-only attr.
+        e.runtimeStyle = e.currentStyle = e.style;
+      }
+      if (parent) {
+        parent.appendChild(e);
+      }
+      return e;
+    };
+};
+
 let textRoot;
+let textIdCache = {};
 const precacheTextWidths = ({ScratchBlocks, xml}) => {
     const svgTag = type => document.createElementNS("http://www.w3.org/2000/svg", type);
 
@@ -55,9 +290,15 @@ const precacheTextWidths = ({ScratchBlocks, xml}) => {
 
             if (!ScratchBlocks.Field._caching && !ScratchBlocks.Field.cacheWidths_[text.textContent + '\n' + text.className.baseVal]) {
                 const textElement = text;
-                console.log('uncached', textElement.textContent, textElement.className.baseVal, ScratchBlocks.Field.cacheWidths_[text.textContent + '\n' + text.className.baseVal]);
+                console.log('uncached', textElement.textContent, textElement.textContent.split('').map(c => c.charCodeAt(0)), textElement.className.baseVal, ScratchBlocks.Field.cacheWidths_[text.textContent + '\n' + text.className.baseVal]);
             }
             return _getCachedWidth.apply(this, arguments);
+        };
+
+        const getHeight = ScratchBlocks.Toolbox.CategoryMenu.prototype.getHeight;
+        ScratchBlocks.Toolbox.CategoryMenu.prototype.getHeight = function () {
+            console.log('CategoryMenu.getHeight');
+            return getHeight.call(this);
         };
 
         textRoot = svgTag('svg');
@@ -65,6 +306,10 @@ const precacheTextWidths = ({ScratchBlocks, xml}) => {
         console.log(ScratchBlocks.ScratchMsgs.locales.en);
         console.log(ScratchBlocks.Blocks);
         console.log(ScratchBlocks.Msg);
+        // hijackTokenize(ScratchBlocks);
+        try {
+        hijackCreateSvgElement(ScratchBlocks);
+        } catch (e) {console.error('hijackCreateSvgElement', e);}
         ScratchBlocks.Field.startCache();
     }
 
@@ -75,12 +320,16 @@ const precacheTextWidths = ({ScratchBlocks, xml}) => {
         return tag;
     }
 
+    blocklyText.class = 'blocklyText';
+
     const blocklyDropdownText = text => {
         const tag = svgTag('text');
         tag.setAttribute('class', 'blocklyText blocklyDropdownText');
         tag.textContent = text;
         return tag;
     }
+
+    blocklyDropdownText.class = 'blocklyText blocklyDropdownText';
 
     const blocklyFlyoutLabelText = text => {
         const tag = svgTag('text');
@@ -89,22 +338,31 @@ const precacheTextWidths = ({ScratchBlocks, xml}) => {
         return tag;
     }
 
+    blocklyText.class = 'blocklyFlyoutLabelText';
+
     const dom = new DOMParser().parseFromString(xml, 'application/xml');
 
     const textGroup = svgTag('g');
+
+    const add = (type, text) => {
+        const key = text + '\n' + type.class;
+        if (!ScratchBlocks.Field.cacheWidths_[key]) {
+            textGroup.appendChild(type(text));
+        }
+    };
 
     const justCache = (type, text) => {
         if (!text) {
             return;
         }
-        textGroup.appendChild(type(text));
+        add(type, text);
     };
 
     const cacheOne = (type, text) => {
         if (!text) {
             return;
         }
-        textGroup.appendChild(type(text.replace(/ /g, '\u00a0')));
+        add(type, text.replace(/ /g, '\u00a0'));
     };
 
     const cacheSplit = (type, text) => {
@@ -113,7 +371,7 @@ const precacheTextWidths = ({ScratchBlocks, xml}) => {
         }
         for (const _sub of text.split(/\%\d+/)) {
             const sub = _sub.trim().replace(/ /g, '\u00a0');
-            textGroup.appendChild(type(sub));
+            add(type, sub);
         }
     };
 
@@ -123,7 +381,7 @@ const precacheTextWidths = ({ScratchBlocks, xml}) => {
         }
         for (const _sub of text.split(/\%[bns]/)) {
             const sub = _sub.trim().replace(/ /g, '\u00a0');
-            textGroup.appendChild(type(sub));
+            add(type, sub);
         }
     };
 
@@ -131,10 +389,18 @@ const precacheTextWidths = ({ScratchBlocks, xml}) => {
         justCache(type, ScratchBlocks.Msg[key.toUpperCase()]);
     };
 
-    const cacheBlock = id => {
+    const cacheBlock = (type, id) => {
+        if (!id) {
+            if (textIdCache['cacheBlock:' + type]) return;
+            textIdCache['cacheBlock:' + type] = true;
+        }
+
         try {
-        ScratchBlocks.Blocks[id].init.call({
+        ScratchBlocks.Blocks[type].init.call({
+            id,
             jsonInit(def) {
+                // console.log(type, id, def);
+
                 if (def.message0) {
                     cacheSplit(blocklyText, def.message0);
                 }
@@ -156,6 +422,7 @@ const precacheTextWidths = ({ScratchBlocks, xml}) => {
                             let {options} = arg;
                             if (typeof options === 'function') {
                                 options = options();
+                                // console.log(type, 'options', options);
                             }
                             for (const option of options) {
                                 cacheOne(blocklyDropdownText, option[0]);
@@ -180,7 +447,7 @@ const precacheTextWidths = ({ScratchBlocks, xml}) => {
         // console.log(el);
         if (ScratchBlocks.Blocks[el.getAttribute('type')]) {
             try {
-                cacheBlock(el.getAttribute('type'));
+                cacheBlock(el.getAttribute('type'), el.getAttribute('id'));
             } catch (e) {
                 console.log('error', el, e);
             }
@@ -303,7 +570,14 @@ class Blocks extends React.Component {
             this.props.options,
             {rtl: this.props.isRtl, toolbox: this.props.toolboxXML}
         );
+
+        // const fragment = document.createDocumentFragment();
+        // const appendChild = this.blocks.appendChild;
+        // this.blocks.appendChild = function (child) {
+        //     fragment.appendChild(child);
+        // };
         this.workspace = this.ScratchBlocks.inject(this.blocks, workspaceConfig);
+        // appendChild.call(this.blocks, fragment);
 
         // Store the xml of the toolbox that is actually rendered.
         // This is used in componentDidUpdate instead of prevProps, because
