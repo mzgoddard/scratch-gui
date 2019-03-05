@@ -44,6 +44,76 @@ const DroppableBlocks = DropAreaHOC([
 ])(BlocksComponent);
 
 const hijackTokenize = ScratchBlocks => {
+    const splitRE = /%(\{[^}]+\})/g;
+    const splitInterpolationRE = /%(\d+|\{[^}]*\})/g;
+    const numberRE = /\d+/;
+    const subInterpolate = function (tokens, rawKey, parseInterpolationTokens) {
+        if (/[a-zA-Z][a-zA-Z0-9_]*/.test(rawKey)) {  // Strict matching
+            // Found a valid string key. Attempt case insensitive match.
+            var keyUpper = rawKey.toUpperCase();
+
+            // BKY_ is the prefix used to namespace the strings used in Blockly
+            // core files and the predefined blocks in ../blocks/. These strings
+            // are defined in ../msgs/ files.
+            var bklyKey = keyUpper.startsWith('BKY_') ?
+            keyUpper.substring(4) : null;
+            if (bklyKey && bklyKey in ScratchBlocks.Msg) {
+                var rawValue = ScratchBlocks.Msg[bklyKey];
+                if (typeof rawValue === 'string') {
+                    // Attempt to dereference substrings, too, appending to the end.
+                    // Array.prototype.push.apply(tokens,
+                    //     ScratchBlocks.utils.tokenizeInterpolation(rawValue));
+                    ScratchBlocks.utils.tokenizeInterpolation(rawValue)
+                        .forEach(subItem => {
+                            if (typeof subItem === 'string' && tokens.length && typeof tokens[tokens.length - 1] === 'string') {
+                                tokens[tokens.length - 1] += subItem;
+                            } else {
+                                tokens.push(subItem);
+                            }
+                        });
+                } else if (parseInterpolationTokens) {
+                    // When parsing interpolation tokens, numbers are special
+                    // placeholders (%1, %2, etc). Make sure all other values are
+                    // strings.
+                    tokens.push(String(rawValue));
+                } else {
+                    tokens.push(rawValue);
+                }
+            } else {
+                // No entry found in the string table. Pass reference as string.
+                tokens.push('%{' + rawKey + '}');
+            }
+        } else {
+            tokens.push('%{' + rawKey + '}');
+        }
+    };
+    ScratchBlocks.utils.tokenizeInterpolation_ = function(message,
+        parseInterpolationTokens) {
+        return message
+            .split(parseInterpolationTokens ? splitInterpolationRE : splitRE)
+            .reduce((tokens, item, index, split) => {
+                if (!item) {
+                    return tokens;
+                }
+                if (index % 2 === 0) {
+                    if (tokens.length && typeof tokens[tokens.length - 1] === 'string') {
+                        tokens[tokens.length - 1] += item;
+                    } else {
+                        tokens.push(item);
+                    }
+                } else {
+                    if ('0' <= item[0] && item[0] <= '9') {
+                        tokens.push(parseInt(item, 10));
+                    } else {
+                        // console.log(item, message, split);
+                        subInterpolate(tokens, item.substring(1, item.length - 1), parseInterpolationTokens);
+                    }
+                }
+                return tokens;
+            }, []);
+    };
+    return;
+
     ScratchBlocks.utils.tokenizeInterpolation_ = function(message,
         parseInterpolationTokens) {
       var tokens = [];
@@ -211,7 +281,170 @@ const hijackTokenize = ScratchBlocks => {
     };
 };
 
-const hijackCreateSvgElement = ScratchBlocks => {
+let early = true;
+let p;
+
+const hijackCreateSvgElement = (ScratchBlocks, root) => {
+    // return;
+    // p = function () {
+    //     return p.defer;
+    // };
+    // p.defer = {
+    //     then: function (cb) {
+    //         if (p._defer) {
+    //             p._defer.push(cb);
+    //         } else {
+    //             cb();
+    //         }
+    //     }
+    // };
+    p = (function() {
+        let s;
+        return function () {
+            if (!s) {
+                s = {
+                    _: [],
+                    then: function (cb) {
+                        s._.push(cb);
+                    }
+                };
+                Promise.resolve().then(() => {
+                    for (let i = 0; i < s._.length; i++) {
+                        s._[i]();
+                    }
+                    s = null;
+                });
+            }
+            return s;
+        };
+    }());
+
+    // p().then(() => {early = false;});
+    const hasAncestor = (el, ancestor) => {
+        while (el.parentElement) {
+            if (el.parentElement === ancestor) {
+                return true;
+            }
+            el = el.parentElement;
+        }
+        return false;
+    };
+
+    if (root) {
+        let listenerMaps = {};
+        let listeners;
+
+        const setAttributeNS = Element.prototype.setAttributeNS;
+        const elSetAttributeNS = function (...args) {
+            p().then(() => setAttributeNS.call(this, ...args));
+        };
+
+        const onMouseDown_ = ScratchBlocks.Field.prototype.onMouseDown_;
+        ScratchBlocks.Field.prototype.onMouseDown_ = function(e) {
+            console.log('Field.onMouseDown_', this.sourceBlock_, this.sourceBlock_.workspace);
+            return onMouseDown_.call(this, e);
+        };
+
+        const addEventListener = Element.prototype.addEventListener;
+        const elAddEventListener = function (...args) {
+            if (args[2]) {
+                addEventListener.call(this, ...args);
+                return;
+            }
+
+            if (!listenerMaps[args[0]]) {
+                const event = args[0];
+                listenerMaps[event] = new WeakMap();
+                root.addEventListener(event, function (eventObject) {
+                    let target = eventObject.target;
+                    while (target && target !== root.parentNode) {
+                        const handlers = listenerMaps[event].get(target);
+                        if (handlers) {
+                            for (let i = 0; i < handlers.length; i++) {
+                                if (handlers[i].call(target, eventObject) || eventObject.cancelBubble) {
+                                    return true;
+                                }
+                            }
+                        }
+                        target = target.parentNode;
+                    }
+                });
+            }
+
+            if (!listeners) {
+                p().then(() => {
+                    if (!listeners) {
+                        addEventListener.call(this, ...args);
+                        return;
+                    }
+                    for (let i = 0; i < listeners.length; i++) {
+                        const [element, event, ...options] = listeners[i];
+                        if (hasAncestor(element, root)) {
+                            let subset = listenerMaps[event].get(element);
+                            if (!subset) {
+                                listenerMaps[event].set(element, subset = []);
+                            }
+                            subset.push(options[0]);
+                        } else {
+                            addEventListener.call(...listeners[i]);
+                        }
+                    }
+                    listeners = null;
+                });
+                listeners = [];
+            }
+            if (listeners) {
+                listeners.push([this, ...args]);
+            } else {
+                addEventListener.call(this, ...args);
+            }
+        };
+
+        const createSvgElement = ScratchBlocks.utils.createSvgElement;
+        ScratchBlocks.utils.createSvgElement = function (name, attrs, parent) {
+            const el = document.createElementNS(ScratchBlocks.SVG_NS, name);
+
+            // let setter;
+            // const attributes = {};
+            // const setAttribute = el.setAttribute;
+            // el.setAttribute = function (key, value) {
+            //     attributes[key] = value;
+            //     if (key === 'class') {
+            //         setAttribute.call(this, key, value);
+            //     } else {
+            //         if (!setter) {
+            //             setter = new Set();
+            //             p().then(() => {
+            //                 for (const key of setter) {
+            //                     setAttribute.call(this, key, attributes[key]);
+            //                 }
+            //                 setter = null;
+            //             });
+            //         }
+            //         setter.add(key);
+            //     }
+            // };
+            // const getAttribute = el.getAttribute;
+            // el.getAttribute = function (key) {
+            //     return attributes[key] || getAttribute.call(this, key);
+            // };
+
+            // el.setAttributeNS = elSetAttributeNS;
+            el.addEventListener = elAddEventListener;
+
+            for (let key in attrs) {
+                el.setAttribute(key, attrs[key]);
+            }
+
+            if (parent) {
+                parent.appendChild(el);
+            }
+
+            return el;
+        };
+    }
+    return;
+
     const runtimeStyle = Boolean(document.body.runtimeStyle);
     const nodeTemplates = {};
     const attrTemplates = {};
@@ -284,6 +517,14 @@ const hijackCreateSvgElement = ScratchBlocks => {
       }
       return e;
     };
+};
+
+hijackCreateSvgElement.post = function (ScratchBlocks) {
+    if (!p || !p._defer) return;
+    for (let i = 0; i < p._defer.length; i++) {
+        p._defer[i]();
+    }
+    p._defer = null;
 };
 
 const hijackTextToDOM = function (ScratchBlocks) {
@@ -376,7 +617,7 @@ const hijackBindEvent = function (ScratchBlocks) {
 
 let textRoot;
 let textIdCache = {};
-const precacheTextWidths = ({ScratchBlocks, xml}) => {
+const precacheTextWidths = ({ScratchBlocks, xml, root}) => {
     // const svgTag = ScratchBlocks.utils.createSvgElement;
     const svgTag = tagName => document.createElementNS(ScratchBlocks.SVG_NS, tagName);
 
@@ -395,7 +636,7 @@ const precacheTextWidths = ({ScratchBlocks, xml}) => {
 
         // const getHeight = ScratchBlocks.Toolbox.CategoryMenu.prototype.getHeight;
         // ScratchBlocks.Toolbox.CategoryMenu.prototype.getHeight = function () {
-        //     console.log('CategoryMenu.getHeight');
+        //     console.log('CategoryMenu.getHeight', new Error('stacktrace').stack);
         //     return getHeight.call(this);
         // };
 
@@ -405,8 +646,8 @@ const precacheTextWidths = ({ScratchBlocks, xml}) => {
         // console.log(ScratchBlocks.Blocks);
         // console.log(ScratchBlocks.Msg);
 
-        // hijackTokenize(ScratchBlocks); // Inconclusive
-        // hijackCreateSvgElement(ScratchBlocks); // Inconclusive
+        hijackTokenize(ScratchBlocks); // Inconclusive
+        hijackCreateSvgElement(ScratchBlocks, root); // Inconclusive
         hijackTextToDOM(ScratchBlocks); // <10%
         hijackCompareStrings(ScratchBlocks); // Scales logarithmically with number of variables
         // hijackBindEvent(ScratchBlocks);
@@ -421,7 +662,126 @@ const precacheTextWidths = ({ScratchBlocks, xml}) => {
         // };
         // Object.assign(ScratchBlocks.DataCategory, DataCategory);
 
+        // let splice;
+        // const clearOldBlocks_ = ScratchBlocks.Flyout.prototype.clearOldBlocks_;
+        // ScratchBlocks.Flyout.prototype.clearOldBlocks_ = function () {
+        //     splice = this.recycleBlocks_.splice;
+        //     this.recycleBlocks_.splice = function () {
+        //         // console.log('use recycled block');
+        //         return splice.apply(this, arguments);
+        //     };
+        //
+        //     const result = clearOldBlocks_.call(this, arguments);
+        //     console.log('recycled', this.recycleBlocks_.length);
+        //     return result;
+        // };
+        //
+        // const domToBlock = ScratchBlocks.Xml.domToBlock;
+        // ScratchBlocks.Xml.domToBlock = function () {
+        //     console.log('domToBlock');
+        //     return domToBlock.apply(this, arguments);
+        // };
+
+        // ScratchBlocks.Tooltip.bindMouseEvents = function () {};
+
+        ScratchBlocks.svgResize = function (workspace) {
+            var mainWorkspace = workspace;
+            while (mainWorkspace.options.parentWorkspace) {
+              mainWorkspace = mainWorkspace.options.parentWorkspace;
+            }
+            var svg = mainWorkspace.getParentSvg();
+            var div = svg.parentNode;
+            if (!div) {
+              // Workspace deleted, or something.
+              return;
+            }
+            svg.setAttribute('width', '100%');
+            svg.setAttribute('height', '100%');
+            var width = div.offsetWidth;
+            var height = div.offsetHeight;
+            if (svg.cachedWidth_ != width) {
+              // svg.setAttribute('width', width + 'px');
+              svg.cachedWidth_ = width;
+            }
+            if (svg.cachedHeight_ != height) {
+              // svg.setAttribute('height', height + 'px');
+              svg.cachedHeight_ = height;
+            }
+            mainWorkspace.resize();
+        };
+
+        let is3dSupportedElement;
+
+        (function() {
+          if (ScratchBlocks.utils.is3dSupported.cached_ !== undefined) {
+            return ScratchBlocks.utils.is3dSupported.cached_;
+          }
+          // CC-BY-SA Lorenzo Polidori
+          // stackoverflow.com/questions/5661671/detecting-transform-translate3d-support
+          // if (!goog.global.getComputedStyle) {
+          //   return false;
+          // }
+
+          var el = is3dSupportedElement = document.createElement('p');
+          var has3d = 'none';
+          var transforms = {
+            'webkitTransform': '-webkit-transform',
+            'OTransform': '-o-transform',
+            'msTransform': '-ms-transform',
+            'MozTransform': '-moz-transform',
+            'transform': 'transform'
+          };
+
+          // Add it to the body to get the computed style.
+          document.body.insertBefore(el, null);
+
+          for (var t in transforms) {
+            if (el.style[t] !== undefined) {
+              el.style[t] = 'translate3d(1px,1px,1px)';
+            }
+          }
+        }());
+
+        ScratchBlocks.utils.is3dSupported = function() {
+            if (ScratchBlocks.utils.is3dSupported.cached_ !== undefined) {
+              return ScratchBlocks.utils.is3dSupported.cached_;
+            }
+            var el = is3dSupportedElement;
+            var has3d = 'none';
+            var transforms = {
+              'webkitTransform': '-webkit-transform',
+              'OTransform': '-o-transform',
+              'msTransform': '-ms-transform',
+              'MozTransform': '-moz-transform',
+              'transform': 'transform'
+            };
+            for (var t in transforms) {
+                if (el.style[t] !== undefined) {
+                // var computedStyle = goog.global.getComputedStyle(el);
+                var computedStyle = el.computedStyleMap();
+                if (!computedStyle) {
+                  // getComputedStyle in Firefox returns null when blockly is loaded
+                  // inside an iframe with display: none.  Returning false and not
+                  // caching is3dSupported means we try again later.  This is most likely
+                  // when users are interacting with blocks which should mean blockly is
+                  // visible again.
+                  // See https://bugzilla.mozilla.org/show_bug.cgi?id=548397
+                  document.body.removeChild(el);
+                  return false;
+                }
+                has3d = computedStyle.get(transforms[t]);
+              }
+            }
+            document.body.removeChild(el);
+            ScratchBlocks.utils.is3dSupported.cached_ = has3d !== 'none';
+            return ScratchBlocks.utils.is3dSupported.cached_;
+        };
+    } else {
+        // early = true;
+        // p().then(() => {early = false;});
     }
+
+    p && (p._defer = []);
 
     const blocklyText = text => {
         const tag = svgTag('text');
@@ -477,7 +837,7 @@ const precacheTextWidths = ({ScratchBlocks, xml}) => {
     };
 
     const cacheOne = (type, text) => {
-        if (isCached('proccode', type, text)) return;
+        if (isCached('one', type, text)) return;
 
         if (!text) {
             return;
@@ -573,6 +933,10 @@ const precacheTextWidths = ({ScratchBlocks, xml}) => {
     justCache(blocklyText, ScratchBlocks.Msg.NEW_VARIABLE);
     justCache(blocklyText, ScratchBlocks.Msg.NEW_LIST);
     justCache(blocklyText, ScratchBlocks.Msg.NEW_PROCEDURE);
+    cacheOne(blocklyText, ScratchBlocks.Msg.CONTROL_STOP);
+    cacheOne(blocklyDropdownText, ScratchBlocks.Msg.CONTROL_STOP_ALL);
+    cacheOne(blocklyDropdownText, ScratchBlocks.Msg.CONTROL_STOP_THIS);
+    cacheOne(blocklyDropdownText, ScratchBlocks.Msg.CONTROL_STOP_OTHER);
 
     cacheBlock('data_setvariableto');
     cacheBlock('data_changevariableby');
@@ -686,6 +1050,13 @@ const precacheTextWidths = ({ScratchBlocks, xml}) => {
 
     // console.log(textGroup);
     // console.log(dom);
+    // console.log(xml);
+
+    ScratchBlocks.utils.is3dSupported();
+};
+
+precacheTextWidths.post = function ({ScratchBlocks}) {
+    hijackCreateSvgElement.post(ScratchBlocks);
 };
 
 class Blocks extends React.Component {
@@ -734,7 +1105,7 @@ class Blocks extends React.Component {
         this.ScratchBlocks.Procedures.externalProcedureDefCallback = this.props.onActivateCustomProcedures;
         this.ScratchBlocks.ScratchMsgs.setLocale(this.props.locale);
 
-        precacheTextWidths({ScratchBlocks: this.ScratchBlocks, xml: this.props.toolboxXML});
+        precacheTextWidths({ScratchBlocks: this.ScratchBlocks, xml: this.props.toolboxXML, root: this.blocks});
 
         const workspaceConfig = defaultsDeep({},
             Blocks.defaultOptions,
@@ -749,6 +1120,8 @@ class Blocks extends React.Component {
         // };
         this.workspace = this.ScratchBlocks.inject(this.blocks, workspaceConfig);
         // appendChild.call(this.blocks, fragment);
+
+        precacheTextWidths.post({ScratchBlocks: this.ScratchBlocks});
 
         // Store the xml of the toolbox that is actually rendered.
         // This is used in componentDidUpdate instead of prevProps, because
@@ -857,6 +1230,8 @@ class Blocks extends React.Component {
         precacheTextWidths({ScratchBlocks: this.ScratchBlocks, xml: this.props.toolboxXML});
         this.workspace.updateToolbox(this.props.toolboxXML);
         this._renderedToolboxXML = this.props.toolboxXML;
+
+        precacheTextWidths.post({ScratchBlocks: this.ScratchBlocks});
 
         // In order to catch any changes that mutate the toolbox during "normal runtime"
         // (variable changes/etc), re-enable toolbox refresh.
@@ -1030,6 +1405,7 @@ class Blocks extends React.Component {
             }
             log.error(error);
         }
+        precacheTextWidths.post({ScratchBlocks: this.ScratchBlocks});
         this.workspace.addChangeListener(this.props.vm.blockListener);
 
         if (this.props.vm.editingTarget && this.state.workspaceMetrics[this.props.vm.editingTarget.id]) {
