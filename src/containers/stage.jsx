@@ -75,7 +75,9 @@ class Stage extends React.Component {
     componentDidMount () {
         this.attachRectEvents();
         this.attachMouseEvents(this.canvas);
-        this.updateRect();
+        Promise.resolve().then(() => {
+            this.updateRect();
+        });
         this.props.vm.runtime.addListener('QUESTION', this.questionListener);
     }
     shouldComponentUpdate (nextProps, nextState) {
@@ -93,8 +95,10 @@ class Stage extends React.Component {
         } else if (!this.props.isColorPicking && prevProps.isColorPicking) {
             this.stopColorPickingLoop();
         }
-        this.updateRect();
-        this.renderer.resize(this.rect.width, this.rect.height);
+        Promise.resolve().then(() => {
+            this.updateRect();
+            this.renderer.resize(this.rect.width, this.rect.height);
+        });
     }
     componentWillUnmount () {
         this.detachMouseEvents(this.canvas);

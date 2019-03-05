@@ -697,6 +697,11 @@ const precacheTextWidths = ({ScratchBlocks, xml, root}) => {
             }
             svg.setAttribute('width', '100%');
             svg.setAttribute('height', '100%');
+            if (!svg.cachedWidth_) {
+                svg.cachedWidth_ = 100;
+                svg.cachedHeight_ = 100;
+                return;
+            }
             var width = div.offsetWidth;
             var height = div.offsetHeight;
             if (svg.cachedWidth_ != width) {
@@ -708,6 +713,58 @@ const precacheTextWidths = ({ScratchBlocks, xml, root}) => {
               svg.cachedHeight_ = height;
             }
             mainWorkspace.resize();
+        };
+
+        ScratchBlocks.WorkspaceSvg.prototype.resize = function() {
+            this.updateScreenCalculations_();
+            if (this.toolbox_) {
+                this.toolbox_.position();
+            }
+            if (this.flyout_) {
+                this.flyout_.position();
+            }
+            if (this.trashcan) {
+                this.trashcan.position();
+            }
+            if (this.zoomControls_) {
+                this.zoomControls_.position();
+            }
+            if (this.scrollbar) {
+                this.scrollbar.resize();
+            }
+        };
+
+        ScratchBlocks.Toolbox.CategoryMenu.prototype.populate = function(domTree) {
+            if (!domTree) {
+                return;
+            }
+
+            // Remove old categories
+            this.dispose();
+            this.createDom();
+            var categories = [];
+            // Find actual categories from the DOM tree.
+            for (var i = 0, child; child = domTree.childNodes[i]; i++) {
+                if (!child.tagName || child.tagName.toUpperCase() != 'CATEGORY') {
+                    continue;
+                }
+                categories.push(child);
+            }
+
+            // Create a single column of categories
+            for (var i = 0; i < categories.length; i++) {
+                var child = categories[i];
+                // var row = goog.dom.createDom('div', 'scratchCategoryMenuRow');
+                var row = document.createElement('div');
+                row.className = 'scratchCategoryMenuRow';
+                this.table.appendChild(row);
+                if (child) {
+                    this.categories_.push(new ScratchBlocks.Toolbox.Category(this, row,
+                        child));
+                }
+            }
+            this.height_ = 100;
+            // this.height_ = this.table.offsetHeight;
         };
 
         let is3dSupportedElement;
