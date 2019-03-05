@@ -222,22 +222,25 @@ const hijackCreateSvgElement = ScratchBlocks => {
             id += ':' + key;
         }
         if (!templates[id]) {
-            templates[id] = document.createElementNS(ScratchBlocks.SVG_NS, name);
-            templates[id].keys = [];
+            const [template, keys] = templates[id] = [document.createElementNS(ScratchBlocks.SVG_NS, name), []];
             for (var key in attrs) {
+                keys.push(key);
                 const attr = document.createAttribute(key);
                 attr.value = attrs[key];
-                templates[id].attributes.setNamedItem(attr);
-                templates[id].keys.push([key.toLowerCase(), key]);
+                template.attributes.setNamedItem(attr);
             }
-            console.log(id, templates[id].keys, attrs);
+            // console.log(id, template.keys, attrs);
         }
-        const t = templates[id];
+        const [t, keys] = templates[id];
         var e = t.cloneNode();
-        const keys = t.keys;
         for (var i = 0; i < keys.length; i++) {
-            e.attributes[i].value = attrs[keys[i][1]];
+            e.attributes[i].value = attrs[keys[i]];
+            // e.attributes.item(i).value = attrs[keys[i]];
+            // e.setAttribute(keys[i], attrs[keys[i]]);
         }
+        // for (let key in attrs) {
+        //     e.setAttribute(key, attrs[key]);
+        // }
         // for (var key in attrs) {
         //     const item = e.attributes.getNamedItem(key);
         //     if (!item) {
@@ -303,7 +306,7 @@ const hijackTextToDOM = function (ScratchBlocks) {
                 // Whatever we got back from the parser is not XML.
                 goog.asserts.fail('Blockly.Xml.textToDom did not obtain a valid XML tree.');
         }
-        console.log(dom.firstChild);
+        // console.log(dom.firstChild);
         return dom.firstChild;
     };
 };
@@ -316,10 +319,66 @@ const hijackCompareStrings = function (ScratchBlocks) {
     ScratchBlocks.scratchBlocksUtils.compareStrings = collator.compare.bind(collator);
 };
 
+const hijackBindEvent = function (ScratchBlocks) {
+    ScratchBlocks.bindEvent_ = function(node, name, thisObject, func) {
+      var wrapFunc = function(e) {
+        if (thisObject) {
+          func.call(thisObject, e);
+        } else {
+          func(e);
+        }
+      };
+
+      node.addEventListener(name, wrapFunc, false);
+      var bindData = [[node, name, wrapFunc]];
+
+      // Add equivalent touch event.
+      if (name in ScratchBlocks.Touch.TOUCH_MAP) {
+        var touchWrapFunc = function(e) {
+          // Punt on multitouch events.
+          if (e.changedTouches.length == 1) {
+            // Map the touch event's properties to the event.
+            var touchPoint = e.changedTouches[0];
+            e.clientX = touchPoint.clientX;
+            e.clientY = touchPoint.clientY;
+          }
+          wrapFunc(e);
+
+          // Stop the browser from scrolling/zooming the page.
+          e.preventDefault();
+        };
+        for (var i = 0, type; type = ScratchBlocks.Touch.TOUCH_MAP[name][i]; i++) {
+          node.addEventListener(type, touchWrapFunc, false);
+          bindData.push([node, type, touchWrapFunc]);
+        }
+      }
+      return bindData;
+    };
+
+    /**
+     * Unbind one or more events event from a function call.
+     * @param {!Array.<!Array>} bindData Opaque data from bindEvent_.
+     *     This list is emptied during the course of calling this function.
+     * @return {!Function} The function call.
+     * @private
+     */
+    ScratchBlocks.unbindEvent_ = function(bindData) {
+      while (bindData.length) {
+        var bindDatum = bindData.pop();
+        var node = bindDatum[0];
+        var name = bindDatum[1];
+        var func = bindDatum[2];
+        node.removeEventListener(name, func, false);
+      }
+      return func;
+    };
+};
+
 let textRoot;
 let textIdCache = {};
 const precacheTextWidths = ({ScratchBlocks, xml}) => {
-    const svgTag = type => document.createElementNS("http://www.w3.org/2000/svg", type);
+    // const svgTag = ScratchBlocks.utils.createSvgElement;
+    const svgTag = tagName => document.createElementNS(ScratchBlocks.SVG_NS, tagName);
 
     if (!textRoot) {
         const _getCachedWidth = ScratchBlocks.Field.getCachedWidth;
@@ -342,14 +401,15 @@ const precacheTextWidths = ({ScratchBlocks, xml}) => {
 
         textRoot = svgTag('svg');
         document.body.appendChild(textRoot);
-        console.log(ScratchBlocks.ScratchMsgs.locales.en);
-        console.log(ScratchBlocks.Blocks);
-        console.log(ScratchBlocks.Msg);
+        // console.log(ScratchBlocks.ScratchMsgs.locales.en);
+        // console.log(ScratchBlocks.Blocks);
+        // console.log(ScratchBlocks.Msg);
 
-        // hijackTokenize(ScratchBlocks);
-        // hijackCreateSvgElement(ScratchBlocks);
-        // hijackTextToDOM(ScratchBlocks);
-        hijackCompareStrings(ScratchBlocks);
+        // hijackTokenize(ScratchBlocks); // Inconclusive
+        // hijackCreateSvgElement(ScratchBlocks); // Inconclusive
+        hijackTextToDOM(ScratchBlocks); // <10%
+        hijackCompareStrings(ScratchBlocks); // Scales logarithmically with number of variables
+        // hijackBindEvent(ScratchBlocks);
 
         ScratchBlocks.Field.startCache();
 
@@ -390,16 +450,23 @@ const precacheTextWidths = ({ScratchBlocks, xml}) => {
 
     blocklyText.class = 'blocklyFlyoutLabelText';
 
-    const dom = new DOMParser().parseFromString(xml, 'application/xml');
+    // const dom = new DOMParser().parseFromString(xml, 'application/xml');
+    const dom = ScratchBlocks.Xml.textToDom(xml);
 
     const textGroup = svgTag('g');
 
-    const add = (type, text) => {
-        const key = text + '\n' + type.class;
+    const isCached = (subcache, type, text) => {
+        const key = `${subcache}:${text}\n${type.class}`;
         if (!textIdCache[key]) {
             textIdCache[key] = true;
-            textGroup.appendChild(type(text));
+            return false;
         }
+        return true;
+    };
+
+    const add = (type, text) => {
+        if (isCached('add', type, text)) return;
+        textGroup.appendChild(type(text));
     };
 
     const justCache = (type, text) => {
@@ -410,6 +477,8 @@ const precacheTextWidths = ({ScratchBlocks, xml}) => {
     };
 
     const cacheOne = (type, text) => {
+        if (isCached('proccode', type, text)) return;
+
         if (!text) {
             return;
         }
@@ -417,6 +486,8 @@ const precacheTextWidths = ({ScratchBlocks, xml}) => {
     };
 
     const cacheSplit = (type, text) => {
+        if (isCached('split', type, text)) return;
+
         if (!text) {
             return;
         }
@@ -427,6 +498,8 @@ const precacheTextWidths = ({ScratchBlocks, xml}) => {
     };
 
     const cacheProccode = (type, text) => {
+        if (isCached('proccode', type, text)) return;
+
         if (!text) {
             return;
         }
@@ -445,28 +518,27 @@ const precacheTextWidths = ({ScratchBlocks, xml}) => {
     };
 
     const cacheBlock = (type, id) => {
-        if (!id) {
-            if (textIdCache['cacheBlock:' + type]) return;
-            textIdCache['cacheBlock:' + type] = true;
-        }
+        // if (!id) {
+        //     if (textIdCache['cacheBlock:' + type]) return;
+        //     textIdCache['cacheBlock:' + type] = true;
+        // }
+        if (textIdCache['cacheBlock:' + type]) return;
 
+        let hasDropdown = false;
         try {
         ScratchBlocks.Blocks[type].init.call({
             id,
             jsonInit(def) {
                 // console.log(type, id, def);
-
                 if (def.message0) {
                     cacheSplit(blocklyText, def.message0);
                 }
                 if (def.message1) {
-                    cacheSplit(blocklyText, def.message1);
-                }
-                if (def.message2) {
-                    cacheSplit(blocklyText, def.message2);
-                }
-                if (def.message3) {
-                    cacheSplit(blocklyText, def.message3);
+                    let i = 2;
+                    let key = 'message1';
+                    do {
+                        cacheSplit(blocklyText, def[key]);
+                    } while (def[key = 'message' + i++])
                 }
                 if (def.args0) {
                     for (const arg of def.args0) {
@@ -474,6 +546,7 @@ const precacheTextWidths = ({ScratchBlocks, xml}) => {
                             cacheOne(blocklyDropdownText, arg.variable);
                         }
                         if (arg.type === 'field_dropdown') {
+                            hasDropdown = true;
                             let {options} = arg;
                             if (typeof options === 'function') {
                                 options = options();
@@ -490,6 +563,9 @@ const precacheTextWidths = ({ScratchBlocks, xml}) => {
         } catch (e) {
             console.log('cacheBlock', id, e);
         }
+        if (!hasDropdown) {
+            textIdCache['cacheBlock:' + type] = true;
+        }
     };
 
     cacheOne(blocklyText, ' ');
@@ -497,6 +573,26 @@ const precacheTextWidths = ({ScratchBlocks, xml}) => {
     justCache(blocklyText, ScratchBlocks.Msg.NEW_VARIABLE);
     justCache(blocklyText, ScratchBlocks.Msg.NEW_LIST);
     justCache(blocklyText, ScratchBlocks.Msg.NEW_PROCEDURE);
+
+    cacheBlock('data_setvariableto');
+    cacheBlock('data_changevariableby');
+    cacheBlock('data_showvariable');
+    cacheBlock('data_hidevariable');
+
+    cacheLocalized(blocklyText, 'DEFAULT_LIST_ITEM');
+    justCache(blocklyText, 1);
+
+    cacheBlock('data_addtolist');
+    cacheBlock('data_deleteoflist');
+    cacheBlock('data_deletealloflist');
+    cacheBlock('data_insertatlist');
+    cacheBlock('data_replaceitemoflist');
+    cacheBlock('data_itemoflist');
+    cacheBlock('data_itemnumoflist');
+    cacheBlock('data_lengthoflist');
+    cacheBlock('data_listcontainsitem');
+    cacheBlock('data_showlist');
+    cacheBlock('data_hidelist');
 
     const sweep = function (el) {
         // console.log(el);
@@ -523,28 +619,6 @@ const precacheTextWidths = ({ScratchBlocks, xml}) => {
         } else if (el.tagName.toLowerCase() === 'variable') {
             cacheOne(blocklyText, el.textContent);
             cacheOne(blocklyDropdownText, el.textContent);
-
-            if (el.getAttribute('type') === '') {
-                cacheBlock('data_setvariableto');
-                cacheBlock('data_changevariableby');
-                cacheBlock('data_showvariable');
-                cacheBlock('data_hidevariable');
-            } else if (el.getAttribute('type') === 'list') {
-                cacheLocalized(blocklyText, 'DEFAULT_LIST_ITEM');
-                justCache(blocklyText, 1);
-
-                cacheBlock('data_addtolist');
-                cacheBlock('data_deleteoflist');
-                cacheBlock('data_deletealloflist');
-                cacheBlock('data_insertatlist');
-                cacheBlock('data_replaceitemoflist');
-                cacheBlock('data_itemoflist');
-                cacheBlock('data_itemnumoflist');
-                cacheBlock('data_lengthoflist');
-                cacheBlock('data_listcontainsitem');
-                cacheBlock('data_showlist');
-                cacheBlock('data_hidelist');
-            }
         }
         for (const child of el.children) {
             sweep(child);
@@ -560,7 +634,41 @@ const precacheTextWidths = ({ScratchBlocks, xml}) => {
         };
     }
 
-    Array.from(dom.children).forEach(sweep);
+    // Array.from(dom.children).forEach(sweep);
+
+    const nodes = Array.from(dom.children);
+    while (nodes.length) {
+        const el = nodes.shift();
+        const type = el.getAttribute('type');
+        if (ScratchBlocks.Blocks[type]) {
+            try {
+                cacheBlock(type, el.getAttribute('id'));
+            } catch (e) {
+                console.log('error', el, e);
+            }
+        }
+        const tagName = el.tagName.toLowerCase();
+        if (tagName === 'mutation') {
+            cacheProccode(blocklyText, el.getAttribute('proccode'));
+        } else if (tagName === 'category') {
+            let name = el.getAttribute('name');
+            if (name[0] === '%') {
+                cacheLocalized(blocklyFlyoutLabelText, name.substring(2, name.length - 1));
+            } else {
+                justCache(blocklyFlyoutLabelText, name);
+            }
+        } else if (tagName === 'label') {
+            justCache(blocklyFlyoutLabelText, el.getAttribute('text'));
+        } else if (tagName === 'field') {
+            cacheOne(blocklyText, el.textContent);
+        } else if (tagName === 'variable') {
+            cacheOne(blocklyText, el.textContent);
+            cacheOne(blocklyDropdownText, el.textContent);
+        }
+        for (let i = 0; i < el.children.length; i++) {
+            nodes.push(el.children[i]);
+        }
+    }
 
     if (!mainWorkspace) {
         ScratchBlocks.mainWorkspace = mainWorkspace;
@@ -576,8 +684,8 @@ const precacheTextWidths = ({ScratchBlocks, xml}) => {
 
     textRoot.removeChild(textGroup);
 
-    console.log(textGroup);
-    console.log(dom);
+    // console.log(textGroup);
+    // console.log(dom);
 };
 
 class Blocks extends React.Component {
