@@ -281,10 +281,440 @@ const hijackTokenize = ScratchBlocks => {
     };
 };
 
+const virtualizeCreateSvgElement = (ScratchBlocks) => {
+    const endBlockDrag = ScratchBlocks.BlockDragger.prototype.endBlockDrag;
+    ScratchBlocks.BlockDragger.prototype.endBlockDrag = function (...args) {
+        console.log('endBlockDrag', args);
+        return endBlockDrag.call(this, ...args);
+    };
+
+    const virtualStyleProxyHandler = {
+        get (target, key) {
+            if (target.real) {
+                if (!(key in target.real)) {
+                    throw new Error('unsupported style: ' + key)
+                }
+                return target.real[key];
+            }
+            return target.style[key];
+        },
+
+        set (target, key, value) {
+            target.style[key] = value;
+            if (target.real) {
+                target.real[key] = value;
+            }
+            return true;
+        },
+
+        deleteProperty (target, key) {
+            delete target.style[key];
+            if (target.real) {
+                delete target.real[key];
+            }
+            return true;
+        }
+    };
+
+    class VirtualStyle {
+        constructor () {
+            this.style = {};
+            this.real = null;
+            this.proxy = new Proxy(this, virtualStyleProxyHandler);
+        }
+
+        setReal (real) {
+            if (!this.real && real) {
+                for (const key in this.style) {
+                    real[key] = this.style[key];
+                }
+            }
+            this.real = real;
+        }
+    }
+
+    class VirtualSvgAnimatedString {
+        constructor (key, attributes) {
+            this.key = key;
+            this.attributes = attributes;
+            this.real = null;
+        }
+
+        setReal (real) {
+            if (!this.real && real && this.key in this.attributes) {
+                real.baseVal = this.attributes[this.key];
+            }
+            this.real = real;
+        }
+
+        get baseVal () {
+            return this.attributes[this.key];
+        }
+
+        set baseVal (value) {
+            this.attributes[this.key] = value;
+            if (this.real) {
+                this.real.baseVal = value;
+            }
+        }
+    }
+
+    const virtualElementProxy = {
+        get (target, key) {
+            if (key in target) {
+                return target[key];
+            } else if (target.real) {
+                const property = target.real[key];
+                if (typeof property === 'function') {
+                    return property.bind(target.real);
+                }
+                return property;
+            } else if (key in target.properties) {
+                return target.properties[key];
+            } else {
+                throw new Error('non-virtualized key: ' + key);
+            }
+        },
+
+        set (target, key, value) {
+            if (key in target) {
+                target[key] = value;
+            } else {
+                target.properties[key] = value;
+                if (target.real) {
+                    target.real[key] = value;
+                } else {
+                    // console.log('property', key, value);
+                }
+            }
+            return true;
+        }
+    };
+
+    class VirtualSvgElement {
+        constructor (tagName) {
+            this.tagName = tagName;
+            this.children = [];
+            this.childNodes = this.children;
+            this.properties = {
+                textContent: ''
+            };
+            this.attributes = {};
+            this.attributesNS = {};
+            this.events = [];
+            this.className = new VirtualSvgAnimatedString('class', this.attributes);
+            this._style = new VirtualStyle();
+            this._dataset = new VirtualStyle();
+            this._textContent = null;
+            this.parent = null;
+            this.real = null;
+            this.proxy = new Proxy(this, virtualElementProxy);
+        }
+
+        _setParent (parent) {
+            this.parent = parent;
+            if (parent && (parent.real || parent instanceof Element) && !this.real) {
+                this.real = _createSvgElement(this.tagName, this.attributes);
+                this.real.debugObject = this;
+                this.className.setReal(this.real.className);
+                this._style.setReal(this.real.style);
+                this._dataset.setReal(this.real.dataset);
+                for (const key in this.properties) {
+                    this.real[key] = this.properties[key];
+                }
+                if (this._textContent !== null) {
+                    this.real.textContent = this._textContent;
+                }
+                for (const key in this.attributes) {
+                    this.real.setAttribute(key, this.attributes[key]);
+                }
+                for (const ns in this.attributesNS) {
+                    for (const key in this.attributesNS[ns]) {
+                        this.real.setAttributeNS(ns, key, this.attributesNS[ns][key]);
+                    }
+                }
+                for (const child of this.children) {
+                    let el = child;
+                    if (child instanceof VirtualSvgElement) {
+                        el = child._setParent(this);
+                    }
+                    this.real.appendChild(el);
+                }
+                for (const [event, listener, capture] of this.events) {
+                    this.real.addEventListener(event, listener, capture);
+                    // this.real.addEventListener(event, function(listener, event) {
+                    //     // event.target = this;
+                    //     listener.call(this, event);
+                    // }.bind(null, listener), capture);
+                }
+            } else if (!parent && this.real) {
+                for (const child of this.children) {
+                    if (child instanceof VirtualSvgElement) {
+                        child._setParent(null);
+                    }
+                }
+                this.real = null;
+                this.className.setReal(null);
+                this._style.setReal(null);
+                this._dataset.setReal(null);
+            }
+            return this.real;
+        }
+
+        get id () {
+            return this.attributes.id;
+        }
+
+        set id (value) {
+            this.attributes.id = value;
+            return value;
+        }
+
+        get firstChild () {
+            return this.children[0];
+        }
+
+        get style () {
+            return this._style.proxy;
+        }
+
+        get dataset () {
+            return this._dataset.proxy;
+        }
+
+        get parentElement () {
+            return this.parent;
+        }
+
+        set parentElement (value) {
+            throw new Error('parentElement');
+        }
+
+        get parentNode () {
+            return this.parent;
+        }
+
+        set parentNode (value) {
+            throw new Error('parentNode');
+        }
+
+        getAttribute (key) {
+            // console.log('getAttribute', key);
+            if (this.real) {
+                return this.real.getAttribute(key);
+            }
+            return this.attributes[key];
+        }
+
+        setAttribute (key, value) {
+            // console.log('setAttribute', key, value);
+            this.attributes[key] = value;
+            if (this.real) {
+                this.real.setAttribute(key, value);
+            }
+            return value;
+        }
+
+        removeAttribute (key) {
+            delete this.attributes[key];
+            if (this.real) {
+                this.real.removeAttribute(key);
+            }
+        }
+
+        setAttributeNS (ns, key, value) {
+            if (!this.attributesNS[ns]) {
+                this.attributesNS[ns] = {};
+            }
+            this.attributesNS[ns][key] = value;
+            if (this.real) {
+                this.real.setAttributeNS(ns, key, value);
+            }
+        }
+
+        addEventListener (event, listener, capture) {
+            this.events.push([event, listener, capture]);
+            if (this.real) {
+                // this.real.addEventListener(event, function (event) {
+                //     event.target = event.target.debugObject || event.target;
+                //     li
+                // }, capture);
+            }
+        }
+
+        removeEventListener (event, listener) {
+            const index = this.events.findIndex(item => (item[0] === event && item[0] === listener));
+            if (index > -1) {
+                this.events.splice(index, 1);
+            }
+            if (this.real) {
+                this.real.removeEventListener(event, listener);
+            }
+        }
+
+        insertBefore (el, before) {
+            const index = this.children.indexOf(before);
+            if (index > -1) {
+                this.children.splice(index, 0, el);
+            } else {
+                this.children.push(el);
+            }
+            if (el instanceof VirtualSvgElement) {
+                el = el._setParent(this);
+            }
+            if (this.real) {
+                if (before instanceof VirtualSvgElement) {
+                    if (!before.real) throw new Error('inserting into real element with virtual reference node');
+                    before = before.real;
+                }
+                this.real.insertBefore(el, before);
+            }
+        }
+
+        appendChild (el) {
+            // console.log('appendChild', el);
+            // if (!this.real) {
+            //     debugger;
+            // }
+            this.children.push(el);
+            if (el instanceof VirtualSvgElement) {
+                el = el._setParent(this);
+            }
+            if (this.real) {
+                this.real.appendChild(el);
+            }
+            // debugger;
+        }
+
+        removeChild (el) {
+            const index = this.children.indexOf(el);
+            if (index > -1) {
+                this.children.splice(index, 1);
+            }
+            if (el instanceof VirtualSvgElement) {
+                el = el._setParent(this);
+            }
+            if (this.real) {
+                this.real.removeChild(el);
+            }
+        }
+
+        contains (el) {
+            if (this.real) {
+                if (el instanceof VirtualSvgElement) {
+                    el = el.real;
+                }
+                return this.real.contains(el);
+            }
+            console.warn('contains');
+            return this.children.indexOf(el);
+        }
+
+        replaceChild () {
+            throw new Error('replaceChild');
+        }
+
+        cloneNode (...args) {
+            if (this.real) {
+                return initSvgSvgElement(this.real.cloneNode(...args));
+            }
+            throw new Error('cloneNode');
+        }
+    }
+
+    const initSvgSvgElement = function (svgElement) {
+        const map = new Map();
+
+        const insertBefore = svgElement.insertBefore;
+        svgElement.insertBefore = function (el, before) {
+            let _el = el;
+            if (_el instanceof VirtualSvgElement) {
+                _el = el._setParent(svgElement);
+                map.set(_el, el);
+            }
+            if (before instanceof VirtualSvgElement) {
+                if (!before.real) throw new Error('inserting with virtual reference');
+                before = before._setParent(svgElement);
+
+            }
+            insertBefore.call(svgElement, _el, before);
+        };
+
+        const appendChild = svgElement.appendChild;
+        svgElement.appendChild = function (el) {
+            let _el = el;
+            if (_el instanceof VirtualSvgElement) {
+                _el = el._setParent(svgElement);
+                map.set(_el, el);
+            }
+            appendChild.call(svgElement, _el);
+            // debugger;
+        };
+
+        const removeChild = svgElement.removeChild;
+        svgElement.removeChild = function (_el) {
+            let el = _el;
+            if (el instanceof VirtualSvgElement) {
+                if (!el.real) throw new Error('removing with non-real element');
+                _el = el.real;
+            } else {
+                el = map.get(_el);
+            }
+            removeChild.call(svgElement, _el);
+            if (el) {
+                el._setParent(null);
+            }
+            map.delete(_el);
+        };
+
+        const contains = svgElement.contains;
+        svgElement.contains = function (el) {
+            console.warn('contains');
+            let _el = el;
+            if (el instanceof VirtualSvgElement) {
+                if (!el.real) return false;
+                _el = el.real;
+            }
+            return contains.call(svgElement, _el);
+        };
+
+        svgElement.replaceChild = function () {
+            throw new Error('replaceChild');
+        };
+
+        svgElement.cloneNode = function () {
+            throw new Error('cloneNode');
+        };
+
+        return svgElement;
+    };
+
+    const _createSvgElement = function (name) {
+        return document.createElementNS(ScratchBlocks.SVG_NS, name);
+    };
+    const _initElement = function (el, attrs, parent) {
+        for (const key in attrs) {
+            el.setAttribute(key, attrs[key]);
+        }
+        if (parent) {
+            parent.appendChild(el);
+        }
+        return el;
+    };
+
+    ScratchBlocks.utils.createSvgElement = function (name, attrs, parent) {
+        if (name === 'svg') {
+            return _initElement(initSvgSvgElement(_createSvgElement(name)), attrs, parent);
+        } else {
+            return _initElement(new VirtualSvgElement(name).proxy, attrs, parent);
+        }
+    };
+};
+
 let early = true;
 let p;
 
-const hijackCreateSvgElement = (ScratchBlocks, root) => {
+const hijackCreateSvgElementEventListener = (ScratchBlocks, root) => {
     // return;
     // p = function () {
     //     return p.defer;
@@ -444,7 +874,9 @@ const hijackCreateSvgElement = (ScratchBlocks, root) => {
         };
     }
     return;
+};
 
+const hijackCreateSvgElement = function (ScratchBlocks) {
     const runtimeStyle = Boolean(document.body.runtimeStyle);
     const nodeTemplates = {};
     const attrTemplates = {};
@@ -519,7 +951,7 @@ const hijackCreateSvgElement = (ScratchBlocks, root) => {
     };
 };
 
-hijackCreateSvgElement.post = function (ScratchBlocks) {
+hijackCreateSvgElementEventListener.post = function (ScratchBlocks) {
     if (!p || !p._defer) return;
     for (let i = 0; i < p._defer.length; i++) {
         p._defer[i]();
@@ -618,8 +1050,8 @@ const hijackBindEvent = function (ScratchBlocks) {
 let textRoot;
 let textIdCache = {};
 const precacheTextWidths = ({ScratchBlocks, xml, root}) => {
-    // const svgTag = ScratchBlocks.utils.createSvgElement;
-    const svgTag = tagName => document.createElementNS(ScratchBlocks.SVG_NS, tagName);
+    const svgTag = tagName => ScratchBlocks.utils.createSvgElement(tagName);
+    // const svgTag = tagName => document.createElementNS(ScratchBlocks.SVG_NS, tagName);
 
     if (!textRoot) {
         const _getCachedWidth = ScratchBlocks.Field.getCachedWidth;
@@ -640,19 +1072,22 @@ const precacheTextWidths = ({ScratchBlocks, xml, root}) => {
         //     return getHeight.call(this);
         // };
 
-        textRoot = svgTag('svg');
-        document.body.appendChild(textRoot);
         // console.log(ScratchBlocks.ScratchMsgs.locales.en);
         // console.log(ScratchBlocks.Blocks);
         // console.log(ScratchBlocks.Msg);
 
-        hijackTokenize(ScratchBlocks); // Inconclusive
-        hijackCreateSvgElement(ScratchBlocks, root); // Inconclusive
+        hijackTokenize(ScratchBlocks); // Regex: conclusive. Non-regex: inconclusive.
+        virtualizeCreateSvgElement(ScratchBlocks);
+        // hijackCreateSvgElementEventListener(ScratchBlocks, root); // Conclusive
+        // hijackCreateSvgElement(ScratchBlocks); // Inconclusive
         hijackTextToDOM(ScratchBlocks); // <10%
         hijackCompareStrings(ScratchBlocks); // Scales logarithmically with number of variables
         // hijackBindEvent(ScratchBlocks);
 
         ScratchBlocks.Field.startCache();
+
+        textRoot = svgTag('svg');
+        document.body.appendChild(textRoot);
 
         // const DataCategory = ScratchBlocks.DataCategory;
         // ScratchBlocks.DataCategory = function (...args) {
@@ -1113,7 +1548,7 @@ const precacheTextWidths = ({ScratchBlocks, xml, root}) => {
 };
 
 precacheTextWidths.post = function ({ScratchBlocks}) {
-    hijackCreateSvgElement.post(ScratchBlocks);
+    hijackCreateSvgElementEventListener.post(ScratchBlocks);
 };
 
 class Blocks extends React.Component {
