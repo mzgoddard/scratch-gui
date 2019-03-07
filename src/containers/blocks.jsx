@@ -412,6 +412,13 @@ const virtualizeCreateSvgElement = (ScratchBlocks) => {
         }
 
         _setParent (parent) {
+            if (parent && this.parent && parent !== this.parent && this.parent instanceof VirtualSvgElement) {
+                // this.parent.removeChild(this);
+                const index = this.parent.children.indexOf(this);
+                if (index > -1) {
+                    this.parent.children.splice(index, 1);
+                }
+            }
             this.parent = parent;
             if (parent && (parent.real || parent instanceof Element) && !this.real) {
                 this.real = _createSvgElement(this.tagName, this.attributes);
@@ -578,6 +585,9 @@ const virtualizeCreateSvgElement = (ScratchBlocks) => {
             // }
             this.children.push(el);
             if (el instanceof VirtualSvgElement) {
+                if (el.real) {
+                    // debugger;
+                }
                 el = el._setParent(this);
             }
             if (this.real) {
@@ -591,11 +601,13 @@ const virtualizeCreateSvgElement = (ScratchBlocks) => {
             if (index > -1) {
                 this.children.splice(index, 1);
             }
+            let _el = el;
             if (el instanceof VirtualSvgElement) {
-                el = el._setParent(this);
+                _el = el.real;
+                el._setParent(null);
             }
             if (this.real) {
-                this.real.removeChild(el);
+                this.real.removeChild(_el);
             }
         }
 
