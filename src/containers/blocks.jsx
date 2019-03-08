@@ -459,16 +459,42 @@ const virtualizeCreateSvgElement = (ScratchBlocks) => {
         CLASSNAME: 128
     };
 
+    const AttributeSetStyle = {
+        UNKNOWN: 0,
+        ANIMATED: 1,
+        ANIMATED_LENGTH: 2,
+        SET_ATTRIBUTE: 3
+    };
+
+    const attributeSetStyleMap = {};
+
+    const initAttributeSetStyle = function (key, el) {
+        // attributeSetStyleMap[key] = AttributeSetStyle.SET_ATTRIBUTE;
+        // return;
+        if (el[key] instanceof SVGAnimatedString) {
+            // console.log('string', key);
+            attributeSetStyleMap[key] = AttributeSetStyle.ANIMATED;
+        } else if (el[key] instanceof SVGAnimatedLength) {
+            // console.log('length', key);
+            attributeSetStyleMap[key] = AttributeSetStyle.ANIMATED_LENGTH;
+        } else {
+            // console.log('set', key);
+            attributeSetStyleMap[key] = AttributeSetStyle.SET_ATTRIBUTE;
+        }
+    };
+
     class VirtualSvgElement {
         constructor (tagName) {
             this.tagName = tagName;
             this._elementMode = 0;
             this._members = 0;
+            this.attached = false;
             this.destroyPending = false;
             this._children = null;
             this._childNodes = null;
             this.properties = null;
             this.attributes = null;
+            this.attributeKeys = null;
             this.attributesNS = null;
             this.events = null;
             this._className = null;
@@ -484,6 +510,26 @@ const virtualizeCreateSvgElement = (ScratchBlocks) => {
             this.proxy = this;
         }
 
+        attach () {
+            if (this.attached) return;
+            this.attached = true;
+            if ((this._elementMode & ElementFeatures.CHILDREN) > 0) {
+                for (let i = 0; i < this._children.length; i++) {
+                    this._children[i].attach && this._children[i].attach();
+                }
+            }
+        }
+
+        detach () {
+            if (!this.attached) return;
+            this.attached = false;
+            if ((this._elementMode & ElementFeatures.CHILDREN) > 0) {
+                for (let i = 0; i < this._children.length; i++) {
+                    this._children[i].detach && this._children[i].detach();
+                }
+            }
+        }
+
         _setParent (parent) {
             if (parent !== null && this.parent !== null && parent !== this.parent && this.parent instanceof VirtualSvgElement) {
                 // this.parent.removeChild(this);
@@ -491,6 +537,11 @@ const virtualizeCreateSvgElement = (ScratchBlocks) => {
                 if (index > -1) {
                     this.parent._children.splice(index, 1);
                 }
+            }
+            if (!this.parent && parent) {
+                this.attach();
+            } else if (this.parent && !parent) {
+                this.detach();
             }
             this.parent = parent;
             if (parent !== null && (parent.real !== null || parent instanceof Element) && this.destroyPending) {
@@ -515,11 +566,23 @@ const virtualizeCreateSvgElement = (ScratchBlocks) => {
                 //     this.real.textContent = this._textContent;
                 // }
                 if ((this._elementMode & ElementFeatures.ATTRIBUTES) > 0) {
-                    for (const key in this.attributes) {
+                    for (let i = 0; i < this.attributeKeys.length; i++) {
+                        const key = this.attributeKeys[i];
+                        if (!attributeSetStyleMap[key]) {
+                            initAttributeSetStyle(key, this.real);
+                        }
+                        switch (attributeSetStyleMap[key]) {
+                        case AttributeSetStyle.ANIMATED:
+                            this.real[key].baseVal = this.attributes[key];
+                            break;
+                        default:
+                            this.real.setAttribute(key, this.attributes[key]);
+                            break;
+                        }
                         // const attr = _createAttribute(key);
                         // attr.value = this.attributes[key];
                         // this.real.attributes.setNamedItem(attr);
-                        this.real.setAttribute(key, this.attributes[key]);
+                        // this.real.setAttribute(key, this.attributes[key]);
                     }
                 }
                 if ((this._elementMode & ElementFeatures.ATTRIBUTESNS) > 0) {
@@ -562,55 +625,66 @@ const virtualizeCreateSvgElement = (ScratchBlocks) => {
         }
 
         _cleanReal () {
-            this.real.parentNode && this.real.parentNode.removeChild(this.real);
+            try {
+            // this.real.parentNode && this.real.parentNode.removeChild(this.real);
             let i = 0;
-            for (const key in this.properties) {
+            if ((this._elementMode & ElementFeatures.PROPERTIES) > 0) {
+                for (const key in this.properties) {
 
-                delete this.real[key];
+                    delete this.real[key];
+                }
             }
             // if (this._textContent !== null) {
             //
             //     this.real.textContent = '';
             // }
-            for (const key in this.attributes) {
-                // _destroyAttribute(this.real.attributes.removeNamedItem(key));
-                this.real.removeAttribute(key);
-            }
-            for (const ns in this.attributesNS) {
-                for (const key in this.attributesNS[ns]) {
-
-                    this.real.removeAttributeNS(ns, key);
+            if ((this._elementMode & ElementFeatures.ATTRIBUTES) > 0) {
+                for (let i = 0; i < this.attributeKeys.length; i++) {
+                    const key = this.attributeKeys[i];
+                    // _destroyAttribute(this.real.attributes.removeNamedItem(key));
+                    this.real.removeAttribute(key);
                 }
             }
-            if (this.events) {
+            if ((this._elementMode & ElementFeatures.ATTRIBUTESNS) > 0) {
+                for (const ns in this.attributesNS) {
+                    for (const key in this.attributesNS[ns]) {
+
+                        this.real.removeAttributeNS(ns, key);
+                    }
+                }
+            }
+            if ((this._elementMode & ElementFeatures.EVENTS) > 0) {
                 for (const [event, listener, change] of this.events) {
 
                     this.real.removeEventListener(event, listener, change);
                 }
             }
-            if (this._style) {
-
+            if ((this._elementMode & ElementFeatures.STYLE) > 0) {
                 this.real.style = '';
                 this._style.real = null;
             }
             const real = this.real;
             this.real = null;
-            this._className && this._className.setReal(null);
-            this._dataset && this._dataset.setReal(null);
-            if (this._children) {
+            ((this._elementMode & ElementFeatures.CLASSNAME) > 0) && this._className.setReal(null);
+            ((this._elementMode & ElementFeatures.DATASET) > 0) && this._dataset.setReal(null);
+            if ((this._elementMode & ElementFeatures.CHILDREN) > 0) {
                 for (const child of this._children) {
-
                     if (child instanceof VirtualSvgElement) {
                         // real.removeChild(child.real);
-                        child._setParent(this);
+                        const el = child._setParent(this);
+                        el.parentNode && el.parentNode.removeChild(el);
+                    } else if (child.parentNode) {
+                        child.parentNode.removeChild(child);
                     }
                 }
             }
+            } catch (e) {console.error(e);}
         }
 
         initAttributes () {
             this._elementMode |= ElementFeatures.ATTRIBUTES;
             this.attributes = {};
+            this.attributeKeys = [];
         }
 
         get id () {
@@ -796,9 +870,9 @@ const virtualizeCreateSvgElement = (ScratchBlocks) => {
         getAttribute (key) {
             if ((this._elementMode & ElementFeatures.ATTRIBUTES) === 0) this.initAttributes();
             // console.log('getAttribute', key);
-            if (this.real !== null) {
-                return this.real.getAttribute(key);
-            }
+            // if (this.real !== null) {
+            //     return this.real.getAttribute(key);
+            // }
             return this.attributes[key];
         }
 
@@ -807,13 +881,36 @@ const virtualizeCreateSvgElement = (ScratchBlocks) => {
             // console.log('setAttribute', key, value);
             if (!this.attributes[key]) {
                 this._members += 1;
+                this.attributeKeys.push(key);
+            // } else if (this.real === null) {
+            //     console.log('repeat setAttribute in nonreal', key);
+            // } else if (!this.attached) {
+            //     console.log('repeat setAttribute while detached', key);
+            // } else {
+            //     console.log('repeat setAttribute after real', key);
             }
             this.attributes[key] = value;
             if (this.real !== null) {
+                if (!attributeSetStyleMap[key]) {
+                    initAttributeSetStyle(key, this.real);
+                }
+                switch (attributeSetStyleMap[key]) {
+                case AttributeSetStyle.ANIMATED:
+                    this.real[key].baseVal = value;
+                    break;
+                case AttributeSetStyle.ANIMATED_LENGTH:
+                    if (this.real[key].baseVal.length) {
+                        this.real[key].baseVal[0].valueAsString = value;
+                        break;
+                    }
+                default:
+                    this.real.setAttribute(key, value);
+                    break;
+                }
                 // const attr = _createAttribute(key);
                 // attr.value = value;
                 // this.real.attributes.setNamedItem(attr);
-                this.real.setAttribute(key, value);
+                // this.real.setAttribute(key, value);
             }
             return value;
         }
@@ -822,6 +919,7 @@ const virtualizeCreateSvgElement = (ScratchBlocks) => {
             if ((this._elementMode & ElementFeatures.ATTRIBUTES) === 0) this.initAttributes();
             if (this.attributes[key]) {
                 this._members -= 1;
+                this.attributeKeys.splice(this.attributeKeys.indexOf(key), 1);
             }
             delete this.attributes[key];
             if (this.real !== null) {
@@ -1104,6 +1202,16 @@ const virtualizeCreateSvgElement = (ScratchBlocks) => {
         return svgElement;
     };
 
+    class CacheNode {
+        add () {
+
+        }
+
+        remove () {
+
+        }
+    }
+
     const _cacheUse = window.svgCacheUse = {
         new: 0,
         low: 0,
@@ -1162,7 +1270,7 @@ const virtualizeCreateSvgElement = (ScratchBlocks) => {
         // return;
         el.destroyPending = true;
         const {tagName, _members} = el;
-        if (_members < 3) {
+        if (_members < 2) {
             if (!_cache[tagName]) {
                 _cache[tagName] = [];
             }
