@@ -1926,16 +1926,37 @@ const precacheTextWidths = ({ScratchBlocks, xml, root}) => {
     const textGroup = svgTag('g');
 
     const isCached = (subcache, type, text) => {
-        const key = `${subcache}:${text}\n${type.class}`;
-        if (!textIdCache[key]) {
-            textIdCache[key] = true;
-            return false;
+        if (!text) return true;
+        if (textIdCache[subcache]) {
+            if (textIdCache[subcache][type.class]) {
+                if (textIdCache[subcache][type.class][text]) {
+                    return true;
+                } else {
+                    textIdCache[subcache][type.class][text] = true;
+                }
+            } else {
+                textIdCache[subcache][type.class] = {
+                    [text]: true
+                };
+            }
+        } else {
+            textIdCache[subcache] = {
+                [type.class]: {
+                    [text]: true
+                }
+            };
         }
-        return true;
+        return false;
+        // const key = `${subcache}:${text}\n${type.class}`;
+        // if (!textIdCache[key]) {
+        //     textIdCache[key] = true;
+        //     return false;
+        // }
+        // return true;
     };
 
     const add = (type, text) => {
-        if (isCached('add', type, text)) return;
+        // if (isCached('add', type, text)) return;
         textGroup.appendChild(type(text));
     };
 
@@ -1946,23 +1967,22 @@ const precacheTextWidths = ({ScratchBlocks, xml, root}) => {
         add(type, text);
     };
 
+    const spaceRE = / /g;
+    const argnumRE = /\%\d+/;
+    const argcodeRE = /\%[bns]/;
+    const nbsp = '\u00a0';
+
     const cacheOne = (type, text) => {
         if (isCached('one', type, text)) return;
 
-        if (!text) {
-            return;
-        }
-        add(type, text.replace(/ /g, '\u00a0'));
+        add(type, text.replace(spaceRE, nbsp));
     };
 
     const cacheSplit = (type, text) => {
         if (isCached('split', type, text)) return;
 
-        if (!text) {
-            return;
-        }
-        for (const _sub of text.split(/\%\d+/)) {
-            const sub = _sub.trim().replace(/ /g, '\u00a0');
+        for (const _sub of text.split(argnumRE)) {
+            const sub = _sub.trim().replace(spaceRE, nbsp);
             add(type, sub);
         }
     };
@@ -1970,11 +1990,8 @@ const precacheTextWidths = ({ScratchBlocks, xml, root}) => {
     const cacheProccode = (type, text) => {
         if (isCached('proccode', type, text)) return;
 
-        if (!text) {
-            return;
-        }
-        for (const _sub of text.split(/\%[bns]/)) {
-            const sub = _sub.trim().replace(/ /g, '\u00a0');
+        for (const _sub of text.split(argcodeRE)) {
+            const sub = _sub.trim().replace(spaceRE, nbsp);
             add(type, sub);
         }
     };
@@ -1987,54 +2004,63 @@ const precacheTextWidths = ({ScratchBlocks, xml, root}) => {
         justCache(type, ScratchBlocks.Msg[_key]);
     };
 
+    const cacheBlockImitation = {
+        id: null,
+        jsonInit (def) {
+            // console.log(type, id, def);
+            if (def.message0) {
+                cacheSplit(blocklyText, def.message0);
+            }
+            if (def.message1) {
+                let i = 2;
+                let key = 'message1';
+                do {
+                    cacheSplit(blocklyText, def[key]);
+                } while (def[key = 'message' + i++])
+            }
+            if (def.args0) {
+                for (const arg of def.args0) {
+                    if (arg.variable) {
+                        cacheOne(blocklyDropdownText, arg.variable);
+                    }
+                    if (arg.type === 'field_dropdown') {
+                        cacheBlockImitation.hasDropdown = true;
+                        let {options} = arg;
+                        if (typeof options === 'function') {
+                            options = options();
+                            // console.log(type, 'options', options);
+                        }
+                        for (const option of options) {
+                            cacheOne(blocklyDropdownText, option[0]);
+                        }
+                    }
+                }
+            }
+        }
+    };
+
     const cacheBlock = (type, id) => {
         // if (!id) {
         //     if (textIdCache['cacheBlock:' + type]) return;
         //     textIdCache['cacheBlock:' + type] = true;
         // }
-        if (textIdCache['cacheBlock:' + type]) return;
+        if (textIdCache.cacheBlock) {
+            if (textIdCache.cacheBlock[type]) return;
+        } else {
+            textIdCache.cacheBlock = {};
+        }
+        // if (textIdCache['cacheBlock:' + type]) return;
 
-        let hasDropdown = false;
+        cacheBlockImitation.hasDropdown = false;
         try {
-        ScratchBlocks.Blocks[type].init.call({
-            id,
-            jsonInit(def) {
-                // console.log(type, id, def);
-                if (def.message0) {
-                    cacheSplit(blocklyText, def.message0);
-                }
-                if (def.message1) {
-                    let i = 2;
-                    let key = 'message1';
-                    do {
-                        cacheSplit(blocklyText, def[key]);
-                    } while (def[key = 'message' + i++])
-                }
-                if (def.args0) {
-                    for (const arg of def.args0) {
-                        if (arg.variable) {
-                            cacheOne(blocklyDropdownText, arg.variable);
-                        }
-                        if (arg.type === 'field_dropdown') {
-                            hasDropdown = true;
-                            let {options} = arg;
-                            if (typeof options === 'function') {
-                                options = options();
-                                // console.log(type, 'options', options);
-                            }
-                            for (const option of options) {
-                                cacheOne(blocklyDropdownText, option[0]);
-                            }
-                        }
-                    }
-                }
-            }
-        });
+            cacheBlockImitation.id = id;
+            ScratchBlocks.Blocks[type].init.call(cacheBlockImitation);
         } catch (e) {
             console.log('cacheBlock', id, e);
         }
-        if (!hasDropdown) {
-            textIdCache['cacheBlock:' + type] = true;
+        if (!cacheBlockImitation.hasDropdown) {
+            textIdCache.cacheBlock[type] = true;
+            // textIdCache['cacheBlock:' + type] = true;
         }
     };
 
