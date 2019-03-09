@@ -405,6 +405,9 @@ const virtualizeCreateSvgElement = (ScratchBlocks) => {
         }
 
         set baseVal (value) {
+            if (!attributeSetStyleMap.class) {
+                initAttributeSetStyle('class', this.real);
+            }
             this.attributes[this.key] = value;
             if (this.real !== null) {
                 this.real.baseVal = value;
@@ -463,7 +466,9 @@ const virtualizeCreateSvgElement = (ScratchBlocks) => {
         UNKNOWN: 0,
         ANIMATED: 1,
         ANIMATED_LENGTH: 2,
-        SET_ATTRIBUTE: 3
+        CLASSNAME: 3,
+        PROPERTY: 4,
+        SET_ATTRIBUTE: 6
     };
 
     const attributeSetStyleMap = {};
@@ -472,13 +477,19 @@ const virtualizeCreateSvgElement = (ScratchBlocks) => {
         // attributeSetStyleMap[key] = AttributeSetStyle.SET_ATTRIBUTE;
         // return;
         if (el[key] instanceof SVGAnimatedString) {
-            // console.log('string', key);
+            // console.log('string', key, el[key].constructor.name, el);
             attributeSetStyleMap[key] = AttributeSetStyle.ANIMATED;
         } else if (el[key] instanceof SVGAnimatedLength) {
-            // console.log('length', key);
+            // console.log('length', key, el[key].constructor.name, el);
             attributeSetStyleMap[key] = AttributeSetStyle.ANIMATED_LENGTH;
+        } else if (key === 'class') {
+            // console.log('classname', key, el.className.constructor.name, el);
+            attributeSetStyleMap[key] = AttributeSetStyle.CLASSNAME;
+        } else if (typeof el[key] === 'string' || el[key] instanceof CSSStyleDeclaration) {
+            // console.log('property', key, el[key].constructor.name, el);
+            attributeSetStyleMap[key] = AttributeSetStyle.PROPERTY;
         } else {
-            // console.log('set', key);
+            // console.log('set', key, el[key] && el[key].constructor.name, el);
             attributeSetStyleMap[key] = AttributeSetStyle.SET_ATTRIBUTE;
         }
     };
@@ -574,6 +585,12 @@ const virtualizeCreateSvgElement = (ScratchBlocks) => {
                         switch (attributeSetStyleMap[key]) {
                         case AttributeSetStyle.ANIMATED:
                             this.real[key].baseVal = this.attributes[key];
+                            break;
+                        case AttributeSetStyle.CLASSNAME:
+                            this.real.className.baseVal = this.attributes[key];
+                            break;
+                        case AttributeSetStyle.PROPERTY:
+                            this.real[key] = this.attributes[key];
                             break;
                         default:
                             this.real.setAttribute(key, this.attributes[key]);
@@ -897,6 +914,12 @@ const virtualizeCreateSvgElement = (ScratchBlocks) => {
                 switch (attributeSetStyleMap[key]) {
                 case AttributeSetStyle.ANIMATED:
                     this.real[key].baseVal = value;
+                    break;
+                case AttributeSetStyle.CLASSNAME:
+                    this.real.className.baseVal = value;
+                    break;
+                case AttributeSetStyle.PROPERTY:
+                    this.real[key] = value;
                     break;
                 case AttributeSetStyle.ANIMATED_LENGTH:
                     if (this.real[key].baseVal.length) {
@@ -1578,11 +1601,368 @@ hijackCreateSvgElementEventListener.post = function (ScratchBlocks) {
 };
 
 const hijackTextToDOM = function (ScratchBlocks) {
+    const parseXml = require('@rgrove/parse-xml');
+
+    const xmlvProxy = {
+        get (target, key) {
+            if (key in target) {
+                return target[key];
+            } else {
+                console.warn('unmatched xml get proxy key', key, target);
+            }
+        },
+
+        set (target, key, value) {
+            if (key in target) {
+                return target[key] = value;
+            } else {
+                console.warn('unmatched xml set proxy key', key, target);
+            }
+        }
+    };
+
+    // class XMLVBase {
+    //     constructor (raw) {
+    //         this.raw = raw;
+    //         this._childNodes = null;
+    //         this._children = null;
+    //         // this.proxy = new Proxy(this, xmlvProxy);
+    //     }
+    //
+    //     get tagName () {
+    //         return this.raw.name;
+    //     }
+    //
+    //     get childNodes () {
+    //         if (this._childNodes === null) {
+    //             this._childNodes = this.raw.children.map(XMLVBase.cast);
+    //         }
+    //         return this._childNodes;
+    //     }
+    //
+    //     get children () {
+    //         if (this._children === null) {
+    //             this._children = this.childNodes.filter(node => node instanceof XMLVElement);
+    //         }
+    //         return this._children;
+    //     }
+    //
+    //     get firstChild () {
+    //         return this.children[0];
+    //     }
+    //
+    //     getAttribute (key) {
+    //         return this.raw.attributes && this.raw.attributes[key];
+    //     }
+    //
+    //     setAttribute (key, value) {
+    //         if (!this.raw.attributes) {
+    //             this.raw.attributes = {};
+    //         }
+    //         return this.raw.attributes[key] = value;
+    //     }
+    //
+    //     getElementsByTagName (tagName) {
+    //         return (this.tagName === tagName ? [this] : []).concat(...this.children.map(child => child.getElementsByTagName(tagName)));
+    //     }
+    //
+    //     static cast (raw) {
+    //         return new (constructors[raw.type] || XMLVBase)(raw);
+    //     }
+    // }
+    //
+    // class XMLVDocument extends XMLVBase {
+    //     get nodeName () {
+    //         return '#document';
+    //     }
+    //
+    //     get nodeType () {
+    //         // return document.DOCUMENT_FRAGMENT_NODE;
+    //         return 11;
+    //     }
+    // }
+    //
+    // class XMLVElement extends XMLVBase {
+    //     get nodeType () {
+    //         // return document.ELEMENT_NODE;
+    //         return 1;
+    //     }
+    //
+    //     get nodeName () {
+    //         return this.raw.name.toUpperCase();
+    //     }
+    //
+    //     get id () {
+    //         return this.raw.attributes.id;
+    //     }
+    //
+    //     get textContent () {
+    //         // if (this.raw.children.length === 1 && this.raw.children[0].nodeType === 3) {
+    //         //     return this.raw.children[0].text;
+    //         // }
+    //         return this.childNodes.map(node => node.textContent).join('');
+    //     }
+    //
+    //     get outerHTML () {
+    //         return ''
+    //         console.warn('outerHTML');
+    //         return (
+    //             `<${this.tagName} ${Object.entries(this.raw.attributes).map(([key, value]) => `${key}="${value}"`).join('')}>` +
+    //             this.childNodes.map(node => node.outerHTML).join('') +
+    //             `</${this.tagName}>`
+    //         );
+    //     }
+    // }
+    //
+    // class XMLVText extends XMLVBase {
+    //     get nodeName () {
+    //         return '#text';
+    //     }
+    //
+    //     get nodeType () {
+    //         // return document.TEXT_NODE;
+    //         return 3;
+    //     }
+    //
+    //     get textContent () {
+    //         return this.raw.text || '';
+    //     }
+    //
+    //     get outerHTML () {
+    //         return this.raw.text || '';
+    //     }
+    // }
+
+    class XMLVBase {
+        constructor (childNodes) {
+            this._tagName = null;
+            this._attributes = null;
+            this._childNodes = childNodes;
+            this._children = null;
+            // this.proxy = new Proxy(this, xmlvProxy);
+        }
+
+        get tagName () {
+            return this._tagName;
+        }
+
+        get childNodes () {
+            return this._childNodes;
+        }
+
+        get children () {
+            if (this._children === null) {
+                this._children = this.childNodes.filter(node => node.nodeType === 1);
+            }
+            return this._children;
+        }
+
+        get firstChild () {
+            return this.children[0];
+        }
+
+        getAttribute (key) {
+            return this._attributes !== null && this._attributes[key];
+        }
+
+        setAttribute (key, value) {
+            if (this._attributes === null) {
+                this._attributes = {};
+            }
+            return this._attributes[key] = value;
+        }
+
+        getElementsByTagName (tagName, _dest = []) {
+            if (this.tagName === tagName) _dest.push(this);
+            for (const child of this.children) {
+                child.getElementsByTagName(tagName, _dest);
+            }
+            return _dest;
+            // return (this.tagName === tagName ? [this] : []).concat(...this.children.map(child => child.getElementsByTagName(tagName)));
+        }
+    }
+
+    class XMLVDocument extends XMLVBase {
+        get nodeName () {
+            return '#document';
+        }
+
+        get nodeType () {
+            // return document.DOCUMENT_FRAGMENT_NODE;
+            return 11;
+        }
+    }
+
+    class XMLVElement extends XMLVBase {
+        get nodeType () {
+            // return document.ELEMENT_NODE;
+            return 1;
+        }
+
+        get nodeName () {
+            return this._tagName.toUpperCase();
+        }
+
+        get id () {
+            return this._attributes.id;
+        }
+
+        get textContent () {
+            // if (this.raw.children.length === 1 && this.raw.children[0].nodeType === 3) {
+            //     return this.raw.children[0].text;
+            // }
+            if (this._childNodes.length === 1) {
+                return this._childNodes[0].textContent;
+            }
+            return this.childNodes.map(node => node.textContent).join('');
+        }
+
+        get outerHTML () {
+            return ''
+            console.warn('outerHTML');
+            return (
+                `<${this.tagName} ${Object.entries(this.raw.attributes).map(([key, value]) => `${key}="${value}"`).join('')}>` +
+                this.childNodes.map(node => node.outerHTML).join('') +
+                `</${this.tagName}>`
+            );
+        }
+    }
+
+    class XMLVText extends XMLVBase {
+        constructor () {
+            super(null);
+            this._text = '';
+        }
+
+        get nodeName () {
+            return '#text';
+        }
+
+        get nodeType () {
+            // return document.TEXT_NODE;
+            return 3;
+        }
+
+        get textContent () {
+            return this._text || '';
+        }
+
+        get outerHTML () {
+            return this._text || '';
+        }
+    }
+
+    const constructors = {
+        document: XMLVDocument,
+        element: XMLVElement,
+        text: XMLVText
+    };
+
     // const root = document.createElementNS('text/xml', 'xml');
     const root = new DOMParser().parseFromString('<xml></xml>', 'text/xml').firstChild;
     const range = document.createRange();
     range.selectNodeContents(root);
+
+    const saxen = require('saxen');
+
+    let saxenStack = [];
+
+    const saxenParser = new saxen.Parser({ proxy: true });
+
+    saxenParser.on('openTag', function (el, decodeEntities, selfClosing) {
+        // if (el.attrs && el.attrs.variabletype === '&#39;&#39;') debugger;
+        // const tag = {
+        //     type: 'element',
+        //     name: el.originalName || el.name,
+        //     // attributes: Object.assign({}, el.attrs),
+        //     attributes: el.attrs,
+        //     children: []
+        // };
+        // saxenStack[saxenStack.length - 1].raw.children.push(tag);
+        const node = new XMLVElement([]);
+        node._tagName = el.name;
+        node._attributes = el.attrs;
+        for (const key in node._attributes) {
+            if (node._attributes[key].indexOf('&') > -1) {
+                node._attributes[key] = decodeEntities(node._attributes[key]);
+            }
+        }
+        saxenStack[saxenStack.length - 1]._childNodes.push(node);
+        saxenStack.push(node);
+    });
+
+    saxenParser.on('text', function (text) {
+        // if (text === 'undefinedundefined') debugger;
+        // const raw = {
+        //     type: 'text',
+        //     text
+        // };
+        // saxenStack[saxenStack.length - 1].raw.children.push(raw);
+        const node = new XMLVText();
+        node._text = text;
+        saxenStack[saxenStack.length - 1]._childNodes.push(node);
+    });
+
+    saxenParser.on('closeTag', function (name) {
+        saxenStack.pop();
+    });
+
+    // const saxenParser = new saxen.Parser();
+    //
+    // saxenParser.on('openTag', function (name, getAttrs, decodeEntities, selfClosing) {
+    //     const tag = {
+    //         type: 'element',
+    //         name,
+    //         attributes: getAttrs(),
+    //         children: []
+    //     };
+    //     saxenStack[saxenStack.length - 1].children.push(tag);
+    //     saxenStack.push(tag);
+    // });
+    //
+    // saxenParser.on('text', function (text) {
+    //     // if (text === 'undefinedundefined') debugger;
+    //     saxenStack[saxenStack.length - 1].children.push({
+    //         type: 'text',
+    //         text
+    //     });
+    // });
+    //
+    // saxenParser.on('closeTag', function (name) {
+    //     saxenStack.pop();
+    // });
+
+    const parseSaxen = function (text) {
+        saxenStack.length = 0;
+        const doc = new XMLVDocument([]);
+        saxenStack.push(doc);
+        saxenParser.parse(text);
+        return saxenStack[0];
+
+        // saxenStack.length = 0;
+        // saxenStack.push({
+        //     type: 'document',
+        //     children: []
+        // });
+        // saxenParser.parse(text);
+        // return saxenStack[0];
+    };
+
+    const domToText = ScratchBlocks.Xml.domToText;
+    ScratchBlocks.Xml.domToText = function (xml) {
+        if (xml instanceof Element) {
+            return domToText.call(this, xml);
+        }
+        return xml.outerHTML;
+    };
+
     ScratchBlocks.Xml.textToDom = function(text) {
+        // console.log(parseSaxen(text));
+        // console.log(parseXml(text));
+        // console.log(XMLVBase.cast(parseXml(text)));
+        return parseSaxen(text).firstChild;
+        return XMLVBase.cast(parseSaxen(text)).firstChild;
+        return XMLVBase.cast(parseXml(text)).firstChild;
         // console.log(range.createContextualFragment(text).firstChild);
         root.innerHTML = text;
         return root.firstChild;
@@ -1672,8 +2052,21 @@ const precacheTextWidths = ({ScratchBlocks, xml, root}) => {
     // const svgTag = tagName => document.createElementNS(ScratchBlocks.SVG_NS, tagName);
 
     if (!textRoot) {
+        const _textCacheWidths = {};
+
         const _getCachedWidth = ScratchBlocks.Field.getCachedWidth;
         ScratchBlocks.Field.getCachedWidth = function (text) {
+            const _textCacheWidthsClass = _textCacheWidths[text.className.baseVal];
+            if (_textCacheWidthsClass) {
+                const _cached = _textCacheWidthsClass[text.textContent];
+                if (_cached) {
+                    return _cached;
+                }
+                return _textCacheWidthsClass[text.textContent] = _getCachedWidth.call(this, text);
+            }
+            _textCacheWidths[text.className.baseVal] = {};
+            return _textCacheWidths[text.className.baseVal][text.textContent] = _getCachedWidth.call(this, text);
+
             // _getCachedWidth.apply(this, arguments);
             // console.log(text.textContent, text.className.baseVal, ScratchBlocks.Field.cacheWidths_[text.textContent + '\n' + text.className.baseVal]);
 
@@ -1705,7 +2098,6 @@ const precacheTextWidths = ({ScratchBlocks, xml, root}) => {
         ScratchBlocks.Field.startCache();
 
         textRoot = svgTag('svg');
-        document.body.appendChild(textRoot);
 
         // const DataCategory = ScratchBlocks.DataCategory;
         // ScratchBlocks.DataCategory = function (...args) {
@@ -1853,6 +2245,8 @@ const precacheTextWidths = ({ScratchBlocks, xml, root}) => {
         }());
 
         ScratchBlocks.utils.is3dSupported = function() {
+            return true;
+
             if (ScratchBlocks.utils.is3dSupported.cached_ !== undefined) {
               return ScratchBlocks.utils.is3dSupported.cached_;
             }
@@ -1868,7 +2262,7 @@ const precacheTextWidths = ({ScratchBlocks, xml, root}) => {
             for (var t in transforms) {
                 if (el.style[t] !== undefined) {
                 // var computedStyle = goog.global.getComputedStyle(el);
-                var computedStyle = el.computedStyleMap();
+                var computedStyle = window.getComputedStyle(el);
                 if (!computedStyle) {
                   // getComputedStyle in Firefox returns null when blockly is loaded
                   // inside an iframe with display: none.  Returning false and not
@@ -1879,7 +2273,7 @@ const precacheTextWidths = ({ScratchBlocks, xml, root}) => {
                   document.body.removeChild(el);
                   return false;
                 }
-                has3d = computedStyle.get(transforms[t]);
+                has3d = computedStyle.getPropertyValue(transforms[t]);
               }
             }
             document.body.removeChild(el);
@@ -2175,6 +2569,7 @@ const precacheTextWidths = ({ScratchBlocks, xml, root}) => {
     }
 
     textRoot.appendChild(textGroup);
+    document.body.appendChild(textRoot);
 
     ScratchBlocks.Field._caching = true;
     for (const element of textGroup.children) {
@@ -2182,6 +2577,8 @@ const precacheTextWidths = ({ScratchBlocks, xml, root}) => {
     }
     ScratchBlocks.Field._caching = false;
 
+
+    document.body.removeChild(textRoot);
     textRoot.removeChild(textGroup);
 
     // console.log(textGroup);
