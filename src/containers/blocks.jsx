@@ -281,6 +281,8 @@ const hijackTokenize = ScratchBlocks => {
     };
 };
 
+const virtualFlushPoints = [];
+
 const virtualizeCreateSvgElement = (ScratchBlocks) => {
     // const endBlockDrag = ScratchBlocks.BlockDragger.prototype.endBlockDrag;
     // ScratchBlocks.BlockDragger.prototype.endBlockDrag = function (...args) {
@@ -549,84 +551,102 @@ const virtualizeCreateSvgElement = (ScratchBlocks) => {
                     this.parent._children.splice(index, 1);
                 }
             }
-            if (!this.parent && parent) {
-                this.attach();
-            } else if (this.parent && !parent) {
-                this.detach();
-            }
+            // if (!this.parent && parent) {
+            //     this.attach();
+            // } else if (this.parent && !parent) {
+            //     this.detach();
+            // }
             this.parent = parent;
             if (parent !== null && (parent.real !== null || parent instanceof Element) && this.destroyPending) {
                 _destroySvgElement.revoke(this);
             }
             if (parent !== null && (parent.real !== null || parent instanceof Element) && this.real === null) {
-                this.real = _createSvgElement(this.tagName);
-                elementMap.set(this.real, this);
-                // this.real.debugObject = this;
-                ((this._elementMode & ElementFeatures.CLASSNAME) > 0) &&
-                    this._className.setReal(this.real.className);
-                ((this._elementMode & ElementFeatures.STYLE) > 0) &&
-                    this._style.setReal(this.real.style);
-                ((this._elementMode & ElementFeatures.DATASET) > 0) &&
-                    this._dataset.setReal(this.real.dataset);
-                if ((this._elementMode & ElementFeatures.PROPERTIES) > 0) {
-                    for (const key in this.properties) {
-                        this.real[key] = this.properties[key];
-                    }
-                }
-                // if (this._textContent !== null) {
-                //     this.real.textContent = this._textContent;
-                // }
-                if ((this._elementMode & ElementFeatures.ATTRIBUTES) > 0) {
-                    for (let i = 0; i < this.attributeKeys.length; i++) {
-                        const key = this.attributeKeys[i];
-                        if (!attributeSetStyleMap[key]) {
-                            initAttributeSetStyle(key, this.real);
-                        }
-                        switch (attributeSetStyleMap[key]) {
-                        case AttributeSetStyle.ANIMATED:
-                            this.real[key].baseVal = this.attributes[key];
-                            break;
-                        case AttributeSetStyle.CLASSNAME:
-                            this.real.className.baseVal = this.attributes[key];
-                            break;
-                        case AttributeSetStyle.PROPERTY:
-                            this.real[key] = this.attributes[key];
-                            break;
-                        default:
-                            this.real.setAttribute(key, this.attributes[key]);
-                            break;
-                        }
-                        // const attr = _createAttribute(key);
-                        // attr.value = this.attributes[key];
-                        // this.real.attributes.setNamedItem(attr);
-                        // this.real.setAttribute(key, this.attributes[key]);
-                    }
-                }
-                if ((this._elementMode & ElementFeatures.ATTRIBUTESNS) > 0) {
-                    for (const ns in this.attributesNS) {
-                        for (const key in this.attributesNS[ns]) {
-                            this.real.setAttributeNS(ns, key, this.attributesNS[ns][key]);
-                        }
-                    }
-                }
-                if ((this._elementMode & ElementFeatures.CHILDREN) > 0) {
-                    for (const child of this._children) {
-                        let el = child;
-                        if (child instanceof VirtualSvgElement) {
-                            el = child._setParent(this);
-                        }
-                        this.real.appendChild(el);
-                    }
-                }
-                if ((this._elementMode & ElementFeatures.EVENTS) > 0) {
-                    for (const [event, listener, capture] of this.events) {
-                        this.real.addEventListener(event, listener, capture);
-                    }
-                }
+                this._almostReal = _createSvgElement(this.tagName);
+                // this._initReal();
             } else if ((parent === null || (parent instanceof VirtualSvgElement && parent.real === null)) && this.real !== null) {
                 _destroySvgElement(this);
             }
-            return this.real;
+            return this.real || this._almostReal;
+        }
+
+        _flushReal () {
+            if ((this._elementMode & ElementFeatures.CHILDREN) > 0) {
+                for (let i = 0; i < this._children.length; i++) {
+                    if (this._children[i] instanceof VirtualSvgElement) {
+                        this._children[i]._flushReal();
+                    }
+                }
+            }
+            if (this.real === null) {
+                this._initReal();
+            }
+        }
+
+        _initReal () {
+            this.real = this._almostReal || _createSvgElement(this.tagName);
+            elementMap.set(this.real, this);
+            // this.real.debugObject = this;
+            ((this._elementMode & ElementFeatures.CLASSNAME) > 0) &&
+                this._className.setReal(this.real.className);
+            ((this._elementMode & ElementFeatures.STYLE) > 0) &&
+                this._style.setReal(this.real.style);
+            ((this._elementMode & ElementFeatures.DATASET) > 0) &&
+                this._dataset.setReal(this.real.dataset);
+            if ((this._elementMode & ElementFeatures.PROPERTIES) > 0) {
+                for (const key in this.properties) {
+                    this.real[key] = this.properties[key];
+                }
+            }
+            // if (this._textContent !== null) {
+            //     this.real.textContent = this._textContent;
+            // }
+            if ((this._elementMode & ElementFeatures.ATTRIBUTES) > 0) {
+                for (let i = 0; i < this.attributeKeys.length; i++) {
+                    const key = this.attributeKeys[i];
+                    if (!attributeSetStyleMap[key]) {
+                        initAttributeSetStyle(key, this.real);
+                    }
+                    switch (attributeSetStyleMap[key]) {
+                    case AttributeSetStyle.ANIMATED:
+                        this.real[key].baseVal = this.attributes[key];
+                        break;
+                    case AttributeSetStyle.CLASSNAME:
+                        this.real.className.baseVal = this.attributes[key];
+                        break;
+                    case AttributeSetStyle.PROPERTY:
+                        this.real[key] = this.attributes[key];
+                        break;
+                    default:
+                        this.real.setAttribute(key, this.attributes[key]);
+                        break;
+                    }
+                    // const attr = _createAttribute(key);
+                    // attr.value = this.attributes[key];
+                    // this.real.attributes.setNamedItem(attr);
+                    // this.real.setAttribute(key, this.attributes[key]);
+                }
+            }
+            if ((this._elementMode & ElementFeatures.ATTRIBUTESNS) > 0) {
+                for (const ns in this.attributesNS) {
+                    for (const key in this.attributesNS[ns]) {
+                        this.real.setAttributeNS(ns, key, this.attributesNS[ns][key]);
+                    }
+                }
+            }
+            if ((this._elementMode & ElementFeatures.CHILDREN) > 0) {
+                for (const child of this._children) {
+                    let el = child;
+                    if (child instanceof VirtualSvgElement) {
+                        el = child._setParent(this);
+                    }
+                    this.real.appendChild(el);
+                }
+            }
+            if ((this._elementMode & ElementFeatures.EVENTS) > 0) {
+                for (const [event, listener, capture] of this.events) {
+                    this.real.addEventListener(event, listener, capture);
+                }
+            }
         }
 
         _cleanFastReal () {
@@ -1085,7 +1105,7 @@ const virtualizeCreateSvgElement = (ScratchBlocks) => {
             }
             if (this.real !== null) {
                 if (before instanceof VirtualSvgElement) {
-                    if (!before.real) throw new Error('inserting into real element with virtual reference node');
+                    if (!(before._almostReal || before.real)) throw new Error('inserting into real element with virtual reference node');
                     before = before.real;
                 }
                 this.real.insertBefore(el, before);
@@ -1162,6 +1182,7 @@ const virtualizeCreateSvgElement = (ScratchBlocks) => {
         svgElement.insertBefore = function (el, before) {
             let _el = el;
             if (_el instanceof VirtualSvgElement) {
+                virtualFlushPoints.push(el);
                 _el = el._setParent(svgElement);
                 map.set(_el, el);
             }
@@ -1177,6 +1198,7 @@ const virtualizeCreateSvgElement = (ScratchBlocks) => {
         svgElement.appendChild = function (el) {
             let _el = el;
             if (_el instanceof VirtualSvgElement) {
+                virtualFlushPoints.push(el);
                 _el = el._setParent(svgElement);
                 map.set(_el, el);
             }
@@ -1191,13 +1213,14 @@ const virtualizeCreateSvgElement = (ScratchBlocks) => {
         svgElement.removeChild = function (_el) {
             let el = _el;
             if (el instanceof VirtualSvgElement) {
-                if (!el.real) throw new Error('removing with non-real element');
-                _el = el.real;
+                if (!el.real && !el._almostReal) throw new Error('removing with non-real element');
+                _el = el._almostReal || el.real;
             } else {
                 el = map.get(_el);
             }
             removeChild.call(svgElement, _el);
             if (el) {
+                virtualFlushPoints.splice(virtualFlushPoints.indexOf(el), 1);
                 el._setParent(null);
             }
             map.delete(_el);
@@ -1346,6 +1369,18 @@ const virtualizeCreateSvgElement = (ScratchBlocks) => {
             return _initElement(new VirtualSvgElement(name).proxy, attrs, parent);
         }
     };
+
+    const getTopLevelWorkspaceMetrics_ = ScratchBlocks.WorkspaceSvg.getTopLevelWorkspaceMetrics_;
+    ScratchBlocks.WorkspaceSvg.getTopLevelWorkspaceMetrics_ = function () {
+        virtualizeCreateSvgElement.post();
+        return getTopLevelWorkspaceMetrics_.apply(this, arguments);
+    };
+};
+
+virtualizeCreateSvgElement.post = function () {
+    for (let i = 0; i < virtualFlushPoints.length; i++) {
+        virtualFlushPoints[i]._flushReal();
+    }
 };
 
 let early = true;
@@ -2571,6 +2606,8 @@ const precacheTextWidths = ({ScratchBlocks, xml, root}) => {
     textRoot.appendChild(textGroup);
     document.body.appendChild(textRoot);
 
+    virtualizeCreateSvgElement.post();
+
     ScratchBlocks.Field._caching = true;
     for (const element of textGroup.children) {
         ScratchBlocks.Field.getCachedWidth(element);
@@ -2590,6 +2627,7 @@ const precacheTextWidths = ({ScratchBlocks, xml, root}) => {
 
 precacheTextWidths.post = function ({ScratchBlocks}) {
     hijackCreateSvgElementEventListener.post(ScratchBlocks);
+    virtualizeCreateSvgElement.post();
 };
 
 class Blocks extends React.Component {
