@@ -328,55 +328,64 @@ const virtualizeCreateSvgElement = (ScratchBlocks) => {
     };
 
     class VirtualStyle {
-        constructor () {
-            this.style = {};
+        constructor (kv, type, key) {
+            this.kv = kv;
+            this.type = type;
+            this.key = key;
+            // this.style = {};
             this.real = null;
             // this.proxy = new Proxy(this, virtualStyleProxyHandler);
             this.proxy = this;
         }
 
         setReal (real) {
-            if (!this.real && real) {
-                for (const key in this.style) {
-                    real[key] = this.style[key];
-                }
-            }
-            if (this.real && !real) {
-                for (const key in this.style) {
-                    delete this.real[key];
-                }
-            }
-            this.real = real;
+            // if (!this.real && real) {
+            //     for (const key in this.style) {
+            //         real[key] = this.style[key];
+            //     }
+            // }
+            // if (this.real && !real) {
+            //     for (const key in this.style) {
+            //         delete this.real[key];
+            //     }
+            // }
+            this.real = real === null ? null : real[this.key];
         }
 
         get fill () {
+            return this.kv.get(this.type, 'fill');
             return this.style.fill;
         }
 
         set fill (value) {
-            this.style.fill = value;
+            this.kv.set(this.type, 'fill', value);
+            // this.style.fill = value;
             if (this.real !== null) {
                 this.real[value] = value;
             }
         }
 
         get id () {
+            return this.kv.get(this.type, 'id');
             return this.style.id;
         }
 
         set id (value) {
-            this.style.id = value;
+            this.kv.set(this.type, 'id', value);
+            // this.style.id = value;
             if (this.real !== null) {
                 this.real[value] = value;
             }
         }
 
         get cursor () {
+            return this.kv.get(this.type, 'cursor');
             return this.style.cursor;
         }
 
         set cursor (value) {
-            this.style.cursor = value;
+            this.kv.set(this.type, 'cursor');
+            // this.style.cursor = value;
             if (this.real !== null) {
                 this.real[value] = value;
             }
@@ -384,9 +393,11 @@ const virtualizeCreateSvgElement = (ScratchBlocks) => {
     }
 
     class VirtualSvgAnimatedString {
-        constructor (key, attributes) {
+        constructor (key, kv, keytype) {
             this.key = key;
-            this.attributes = attributes;
+            // this.attributes = attributes;
+            this.kv = kv;
+            this.keytype = keytype;
             this.real = null;
         }
 
@@ -397,14 +408,21 @@ const virtualizeCreateSvgElement = (ScratchBlocks) => {
             // if (this.real && !real && this.key in this.attributes) {
             //     real.baseVal = '';
             // }
-            this.real = real;
+            this.real = real === null ? null : real[this.key];
         }
 
         get baseVal () {
+            return this.kv.get(this.keytype, this.key);
             return this.attributes[this.key];
         }
 
         set baseVal (value) {
+            this.kv.set(this.keytype, this.key, value);
+            if (this.real !== null) {
+                this.real.baseVal = value;
+            }
+            return;
+
             if (!attributeSetStyleMap.class) {
                 initAttributeSetStyle('class', this.real);
             }
@@ -494,6 +512,248 @@ const virtualizeCreateSvgElement = (ScratchBlocks) => {
         }
     };
 
+    const ElementKeyType = {
+        UNSET: -1,
+        ATTRIBUTE: 0,
+        PROPERTY: 1,
+        PROPERTY_ANIMATED: 2,
+        PROPERTY_ANIMATED_LENGTH: 3,
+        CHILD: 4,
+        EVENT: 5,
+        DATA: 6,
+        STYLE: 7,
+        ATTRIBUTENS: 8
+    };
+
+    const emptyTable = {};
+    const initIndexMap = [
+        emptyTable,
+        emptyTable,
+        emptyTable,
+        emptyTable,
+        emptyTable,
+        emptyTable,
+        emptyTable,
+        emptyTable
+    ];
+
+    class VirtualElementKV {
+        constructor () {
+            this._index = initIndexMap;
+            this._values = [];
+        }
+
+        has (type, key) {
+            return this._index[type][key] > -1;
+        }
+
+        get (type, key) {
+            return this._values[this._index[type][key] || -1];
+        }
+
+        set (type, key, value) {
+            if (this._index === initIndexMap) {
+                this._values = [];
+                this._index = [
+                    emptyTable,
+                    emptyTable,
+                    emptyTable,
+                    emptyTable,
+                    emptyTable,
+                    emptyTable,
+                    emptyTable,
+                    emptyTable,
+                    emptyTable
+                ];
+                this._index[type] = {};
+                this._index[type][key] = this._values.length + 2;
+                this._values.push(type, key, value, -1);
+            } else if (this._index[type] === emptyTable) {
+                this._index[type] = {};
+                this._index[type][key] = this._values.length + 2;
+                this._values.push(type, key, value, -1);
+            } else if (this._index[type][key] > -1) {
+                this._values[this._index[type][key]] = value;
+            } else {
+                this._index[type][key] = this._values.length + 2;
+                this._values.push(type, key, value, -1);
+            }
+        }
+
+        delete (type, key, value) {
+            if (this._index[type][key] > -1) {
+                this._values[this._index[type][key] - 2] = ElementKeyType.UNSET;
+                this._index[type][key] = -1;
+            }
+        }
+
+        setExtra (type, key, value, extra) {
+            if (this._index === initIndexMap) {
+                this._values = [];
+                this._index = [
+                    emptyTable,
+                    emptyTable,
+                    emptyTable,
+                    emptyTable,
+                    emptyTable,
+                    emptyTable,
+                    emptyTable,
+                    emptyTable,
+                    emptyTable
+                ];
+                this._index[type] = {};
+                this._index[type][key] = this._values.length + 2;
+                this._values.push(type, key, value, extra);
+            } else if (this._index[type] === emptyTable) {
+                this._index[type] = {};
+                this._index[type][key] = this._values.length + 2;
+                this._values.push(type, key, value, extra);
+            } else if (this._index[type][key] > -1) {
+                this._values[this._index[type][key]] = value;
+                this._values[this._index[type][key] + 1] = extra;
+            } else {
+                this._index[type][key] = this._values.length + 2;
+                this._values.push(type, key, value, extra);
+            }
+        }
+
+        deleteExtra (type, key) {
+            if (this._index[type][key] > -1) {
+                this._values[this._index[type][key] - 2] = ElementKeyType.UNSET;
+                this._index[type][key] = -1;
+            }
+        }
+
+        setMultiple (type, key, value, extra) {
+            if (this._index === initIndexMap) {
+                this._values = [];
+                this._index = [
+                    emptyTable,
+                    emptyTable,
+                    emptyTable,
+                    emptyTable,
+                    emptyTable,
+                    emptyTable,
+                    emptyTable,
+                    emptyTable,
+                    emptyTable
+                ];
+                this._index[type] = {};
+                this._index[type][key] = this._values.length + 2;
+                this._values.push(type, key, value, extra);
+            } else if (this._index[type] === emptyTable) {
+                this._index[type] = {};
+                this._index[type][key] = this._values.length + 2;
+                this._values.push(type, key, value, extra);
+            } else if (this._index[type][key] > -1) {
+                this._values.push(type, key, value, extra);
+            } else {
+                this._index[type][key] = this._values.length + 2;
+                this._values.push(type, key, value, extra);
+            }
+        }
+
+        deleteMultiple (type, key, value, extra) {
+            if (this._index[type][key] > -1) {
+                let i = this._index[type][key] - 2;
+                for (; i < this._values.length; i += 4) {
+                    if (this._values[i] === type && this._values[i + 1] === key && (this._values[i + 2] === value || this._values[i + 2].wrapped === value) && this._values[i + 3] === extra) {
+                        this._values[i] = ElementKeyType.UNSET;
+                        break;
+                    }
+                }
+                let result;
+                if (i < this._values.length) {
+                    result = this._values.slice(i + 1, i + 4);
+                }
+                if (i === this._index[type][key] - 2) {
+                    this._index[type][key] = -1;
+                    for (; i < this._values.length; i += 4) {
+                        if (this._values[i] === type && this._values[i + 1] === key) {
+                            break;
+                        }
+                    }
+                    if (i < this._values.length) {
+                        this._index[type][key] = i + 2;
+                    } else {
+                        this._index[type][key] = -1;
+                    }
+                }
+                return result;
+            }
+        }
+
+        applyAll (element) {
+            for (let i = 0; i < this._values.length; i += 4) {
+                switch (this._values[i]) {
+                case ElementKeyType.ATTRIBUTE:
+                    element.setAttribute(this._values[i + 1], this._values[i + 2]);
+                    break;
+                case ElementKeyType.PROPERTY:
+                    element[this._values[i + 1]] = this._values[i + 2];
+                    break;
+                case ElementKeyType.PROPERTY_ANIMATED:
+                    element[this._values[i + 1]].baseVal = this._values[i + 2];
+                    break;
+                case ElementKeyType.PROPERTY_ANIMATED_LENGTH:
+                    if (element[this._values[i + 1]].baseVal.length > 0) {
+                        element[this._values[i + 1]].baseVal[0].valueAsString = this._values[i + 2];
+                    } else {
+                        element.setAttribute(this._values[i + 1], this._values[i + 2]);
+                    }
+                    break;
+                case ElementKeyType.CHILD:
+                    break;
+                case ElementKeyType.EVENT:
+                    element.addEventListener(this._values[i + 1], this._values[i + 2], this._values[i + 3]);
+                    break;
+                case ElementKeyType.DATA:
+                    element.dataset[this._values[i + 1]] = this._values[i + 2];
+                    break;
+                case ElementKeyType.STYLE:
+                    element.style[this._values[i + 1]] = this._values[i + 2];
+                    break;
+                case ElementKeyType.ATTRIBUTENS:
+                    element.setAttributeNS(this._values[i + 3], this._values[i + 1], this._values[i + 2]);
+                    break;
+                }
+            }
+        }
+
+        removeAll (element) {
+            for (let i = 0; i < this._values.length; i += 4) {
+                switch (this._values[i]) {
+                case ElementKeyType.ATTRIBUTE:
+                    element.removeAttribute(this._values[i + 1]);
+                    break;
+                case ElementKeyType.PROPERTY:
+                    delete element[this._values[i + 1]];
+                    break;
+                case ElementKeyType.PROPERTY_ANIMATED:
+                    element.removeAttribute(this._values[i + 1]);
+                    break;
+                case ElementKeyType.PROPERTY_ANIMATED_LENGTH:
+                    element.removeAttribute(this._values[i + 1]);
+                    break;
+                case ElementKeyType.CHILD:
+                    break;
+                case ElementKeyType.EVENT:
+                    element.removeEventListener(this._values[i + 1], this._values[i + 2], this._values[i + 3]);
+                    break;
+                case ElementKeyType.DATA:
+                    delete element.dataset[this._values[i + 1]];
+                    break;
+                case ElementKeyType.STYLE:
+                    delete element.style[this._values[i + 1]];
+                    break;
+                case ElementKeyType.ATTRIBUTENS:
+                    element.removeAttributeNS(this._values[i + 3], this._values[i + 1]);
+                    break;
+                }
+            }
+        }
+    }
+
     class VirtualSvgElement {
         constructor (tagName) {
             this.tagName = tagName;
@@ -501,6 +761,7 @@ const virtualizeCreateSvgElement = (ScratchBlocks) => {
             this._members = 0;
             this.attached = false;
             this.destroyPending = false;
+            this._kv = new VirtualElementKV();
             this._children = null;
             this._childNodes = null;
             this.properties = null;
@@ -508,6 +769,7 @@ const virtualizeCreateSvgElement = (ScratchBlocks) => {
             this.attributeKeys = null;
             this.attributesNS = null;
             this.events = null;
+            this._memberProxies = [];
             this._className = null;
             this._style = null;
             this._dataset = null;
@@ -543,86 +805,194 @@ const virtualizeCreateSvgElement = (ScratchBlocks) => {
 
         _setParent (parent) {
             if (parent !== null && this.parent !== null && parent !== this.parent && this.parent instanceof VirtualSvgElement) {
-                // this.parent.removeChild(this);
                 const index = this.parent._children.indexOf(this);
                 if (index > -1) {
                     this.parent._children.splice(index, 1);
                 }
             }
-            if (!this.parent && parent) {
-                this.attach();
-            } else if (this.parent && !parent) {
-                this.detach();
-            }
+
             this.parent = parent;
             if (parent !== null && (parent.real !== null || parent instanceof Element) && this.destroyPending) {
                 _destroySvgElement.revoke(this);
-            }
-            if (parent !== null && (parent.real !== null || parent instanceof Element) && this.real === null) {
-                this.real = _createSvgElement(this.tagName);
-                elementMap.set(this.real, this);
-                // this.real.debugObject = this;
-                ((this._elementMode & ElementFeatures.CLASSNAME) > 0) &&
-                    this._className.setReal(this.real.className);
-                ((this._elementMode & ElementFeatures.STYLE) > 0) &&
-                    this._style.setReal(this.real.style);
-                ((this._elementMode & ElementFeatures.DATASET) > 0) &&
-                    this._dataset.setReal(this.real.dataset);
-                if ((this._elementMode & ElementFeatures.PROPERTIES) > 0) {
-                    for (const key in this.properties) {
-                        this.real[key] = this.properties[key];
+            } else if (parent !== null && (parent.real !== null || parent instanceof Element) && this.real === null) {
+                const tree = [parent, this];
+                for (let i = 0; i < tree.length; i += 2) {
+                    const _parent = tree[i];
+                    const _this = tree[i + 1];
+                    if ((_this._elementMode & ElementFeatures.CHILDREN) > 0) {
+                        for (let j = 0; j < _this._children.length; j++) {
+                            const _child = _this._children[j];
+                            if (_child instanceof VirtualSvgElement) {
+                                if (_this._parent !== null && _parent !== _this._parent && _this._parent instanceof VirtualSvgElement) {
+                                    const index = _this._parent._children.indexOf(_this);
+                                    if (index > -1) {
+                                        _this._parent._children.splice(index, 1);
+                                    }
+                                }
+                                _this._parent = _parent;
+
+                                if (_this.destroyPending) {
+                                    _destroySvgElement.revoke(_this);
+                                } else if (_this.real === null) {
+                                    tree.push(_this, _child);
+                                }
+                            }
+                        }
                     }
                 }
-                // if (this._textContent !== null) {
-                //     this.real.textContent = this._textContent;
+
+                for (let i = tree.length - 2; i >= 0; i -= 2) {
+                    const _this = tree[i + 1];
+
+                    let element;
+
+                    let _cached = _cache[_this.tagName] && _cache[_this.tagName].pop()
+                    if (_cached) {
+                        _cacheUse.low += 1;
+                    } else {
+                        _cached = _highCache[_this.tagName] && _highCache[_this.tagName].pop();
+                        if (_cached) {
+                            _cacheUse.high += 1;
+                        }
+                    }
+                    if (_cached) {
+                        _cached.destroyPending = false;
+                        element = _cached.real;
+
+                        const _values = _cached._kv._values;
+                        for (let i = 0; i < _values.length; i += 4) {
+                            switch (_values[i]) {
+                            case ElementKeyType.ATTRIBUTE:
+                                element.removeAttribute(_values[i + 1]);
+                                break;
+                            case ElementKeyType.PROPERTY:
+                                delete element[_values[i + 1]];
+                                break;
+                            case ElementKeyType.PROPERTY_ANIMATED:
+                                element.removeAttribute(_values[i + 1]);
+                                break;
+                            case ElementKeyType.PROPERTY_ANIMATED_LENGTH:
+                                element.removeAttribute(_values[i + 1]);
+                                break;
+                            case ElementKeyType.CHILD:
+                                break;
+                            case ElementKeyType.EVENT:
+                                element.removeEventListener(_values[i + 1], _values[i + 2], _values[i + 3]);
+                                break;
+                            case ElementKeyType.DATA:
+                                delete element.dataset[_values[i + 1]];
+                                break;
+                            case ElementKeyType.STYLE:
+                                delete element.style[_values[i + 1]];
+                                break;
+                            case ElementKeyType.ATTRIBUTENS:
+                                element.removeAttributeNS(_values[i + 3], _values[i + 1]);
+                                break;
+                            }
+                        }
+
+                        const real = _cached.real;
+                        _cached.real = null;
+                        for (let i = 0; i < _cached._memberProxies.length; i++) {
+                            _cached._memberProxies[i].real = null;
+                        }
+                        if ((_cached._elementMode & ElementFeatures.CHILDREN) > 0) {
+                            for (let j = 0; j < _cached._children.length; j++) {
+                                const child = _cached._children[j];
+                                if (child instanceof VirtualSvgElement) {
+                                    _destroySvgElement(child);
+                                    const el = child.real;
+                                    el.parentNode && el.parentNode.removeChild(el);
+                                } else if (child.parentNode) {
+                                    child.parentNode.removeChild(child);
+                                }
+                            }
+                        }
+                    } else {
+                        _cacheUse.new += 1;
+                        element = document.createElementNS(ScratchBlocks.SVG_NS, _this.tagName);
+                    }
+
+                    _this.real = element;
+                    elementMap.set(_this.real, _this);
+                }
+
+                for (let i = tree.length - 2; i >= 0; i -= 2) {
+                    const _this = tree[i + 1];
+
+                    for (let i = 0; i < _this._memberProxies.length; i++) {
+                        _this._memberProxies[i].real = _this.real[_this._memberProxies[i].key];
+                    }
+
+                    const element = _this.real;
+                    const _values = _this._kv._values;
+                    for (let i = 0; i < _values.length; i += 4) {
+                        switch (_values[i]) {
+                        case ElementKeyType.ATTRIBUTE:
+                            element.setAttribute(_values[i + 1], _values[i + 2]);
+                            break;
+                        case ElementKeyType.PROPERTY:
+                            element[_values[i + 1]] = _values[i + 2];
+                            break;
+                        case ElementKeyType.PROPERTY_ANIMATED:
+                            element[_values[i + 1]].baseVal = _values[i + 2];
+                            break;
+                        case ElementKeyType.PROPERTY_ANIMATED_LENGTH:
+                            if (element[_values[i + 1]].baseVal.length > 0) {
+                                element[_values[i + 1]].baseVal[0].valueAsString = _values[i + 2];
+                            } else {
+                                element.setAttribute(_values[i + 1], _values[i + 2]);
+                            }
+                            break;
+                        case ElementKeyType.CHILD:
+                            break;
+                        case ElementKeyType.EVENT:
+                            element.addEventListener(_values[i + 1], _values[i + 2], _values[i + 3]);
+                            break;
+                        case ElementKeyType.DATA:
+                            element.dataset[_values[i + 1]] = _values[i + 2];
+                            break;
+                        case ElementKeyType.STYLE:
+                            element.style[_values[i + 1]] = _values[i + 2];
+                            break;
+                        case ElementKeyType.ATTRIBUTENS:
+                            element.setAttributeNS(_values[i + 3], _values[i + 1], _values[i + 2]);
+                            break;
+                        }
+                    }
+
+                    // _this._kv.applyAll(_this.real);
+
+                    if ((_this._elementMode & ElementFeatures.CHILDREN) > 0) {
+                        for (let j = 0; j < _this._children.length; j++) {
+                            let el = _this._children[j];
+                            if (el instanceof VirtualSvgElement) {
+                                el = el.real;
+                            }
+                            if (!(el instanceof Node)) debugger;
+                            _this.real.appendChild(el);
+                        }
+                    }
+                }
+
+                // this.real = _createSvgElement(this.tagName);
+                // elementMap.set(this.real, this);
+                //
+                // for (let i = 0; i < this._memberProxies.length; i++) {
+                //     this._memberProxies[i].real = this.real[this._memberProxies[i].key];
                 // }
-                if ((this._elementMode & ElementFeatures.ATTRIBUTES) > 0) {
-                    for (let i = 0; i < this.attributeKeys.length; i++) {
-                        const key = this.attributeKeys[i];
-                        if (!attributeSetStyleMap[key]) {
-                            initAttributeSetStyle(key, this.real);
-                        }
-                        switch (attributeSetStyleMap[key]) {
-                        case AttributeSetStyle.ANIMATED:
-                            this.real[key].baseVal = this.attributes[key];
-                            break;
-                        case AttributeSetStyle.CLASSNAME:
-                            this.real.className.baseVal = this.attributes[key];
-                            break;
-                        case AttributeSetStyle.PROPERTY:
-                            this.real[key] = this.attributes[key];
-                            break;
-                        default:
-                            this.real.setAttribute(key, this.attributes[key]);
-                            break;
-                        }
-                        // const attr = _createAttribute(key);
-                        // attr.value = this.attributes[key];
-                        // this.real.attributes.setNamedItem(attr);
-                        // this.real.setAttribute(key, this.attributes[key]);
-                    }
-                }
-                if ((this._elementMode & ElementFeatures.ATTRIBUTESNS) > 0) {
-                    for (const ns in this.attributesNS) {
-                        for (const key in this.attributesNS[ns]) {
-                            this.real.setAttributeNS(ns, key, this.attributesNS[ns][key]);
-                        }
-                    }
-                }
-                if ((this._elementMode & ElementFeatures.CHILDREN) > 0) {
-                    for (const child of this._children) {
-                        let el = child;
-                        if (child instanceof VirtualSvgElement) {
-                            el = child._setParent(this);
-                        }
-                        this.real.appendChild(el);
-                    }
-                }
-                if ((this._elementMode & ElementFeatures.EVENTS) > 0) {
-                    for (const [event, listener, capture] of this.events) {
-                        this.real.addEventListener(event, listener, capture);
-                    }
-                }
+                //
+                // this._kv.applyAll(this.real);
+                //
+                // if ((this._elementMode & ElementFeatures.CHILDREN) > 0) {
+                //     for (const child of this._children) {
+                //         let el = child;
+                //         if (child instanceof VirtualSvgElement) {
+                //             el = child._setParent(this);
+                //         }
+                //         this.real.appendChild(el);
+                //     }
+                // }
             } else if ((parent === null || (parent instanceof VirtualSvgElement && parent.real === null)) && this.real !== null) {
                 _destroySvgElement(this);
             }
@@ -645,45 +1015,47 @@ const virtualizeCreateSvgElement = (ScratchBlocks) => {
             try {
             // this.real.parentNode && this.real.parentNode.removeChild(this.real);
             let i = 0;
-            if ((this._elementMode & ElementFeatures.PROPERTIES) > 0) {
-                for (const key in this.properties) {
-
-                    delete this.real[key];
-                }
-            }
+            // if ((this._elementMode & ElementFeatures.PROPERTIES) > 0) {
+            //     for (const key in this.properties) {
+            //
+            //         delete this.real[key];
+            //     }
+            // }
             // if (this._textContent !== null) {
             //
             //     this.real.textContent = '';
             // }
-            if ((this._elementMode & ElementFeatures.ATTRIBUTES) > 0) {
-                for (let i = 0; i < this.attributeKeys.length; i++) {
-                    const key = this.attributeKeys[i];
-                    // _destroyAttribute(this.real.attributes.removeNamedItem(key));
-                    this.real.removeAttribute(key);
-                }
-            }
-            if ((this._elementMode & ElementFeatures.ATTRIBUTESNS) > 0) {
-                for (const ns in this.attributesNS) {
-                    for (const key in this.attributesNS[ns]) {
-
-                        this.real.removeAttributeNS(ns, key);
-                    }
-                }
-            }
-            if ((this._elementMode & ElementFeatures.EVENTS) > 0) {
-                for (const [event, listener, change] of this.events) {
-
-                    this.real.removeEventListener(event, listener, change);
-                }
-            }
-            if ((this._elementMode & ElementFeatures.STYLE) > 0) {
-                this.real.style = '';
-                this._style.real = null;
-            }
+            // if ((this._elementMode & ElementFeatures.ATTRIBUTES) > 0) {
+            //     for (let i = 0; i < this.attributeKeys.length; i++) {
+            //         const key = this.attributeKeys[i];
+            //         // _destroyAttribute(this.real.attributes.removeNamedItem(key));
+            //         this.real.removeAttribute(key);
+            //     }
+            // }
+            // if ((this._elementMode & ElementFeatures.ATTRIBUTESNS) > 0) {
+            //     for (const ns in this.attributesNS) {
+            //         for (const key in this.attributesNS[ns]) {
+            //
+            //             this.real.removeAttributeNS(ns, key);
+            //         }
+            //     }
+            // }
+            // if ((this._elementMode & ElementFeatures.EVENTS) > 0) {
+            //     for (const [event, listener, change] of this.events) {
+            //
+            //         this.real.removeEventListener(event, listener, change);
+            //     }
+            // }
+            // if ((this._elementMode & ElementFeatures.STYLE) > 0) {
+            //     // this.real.style = '';
+            //     this._style.real = null;
+            // }
+            this._kv.removeAll(this.real);
             const real = this.real;
             this.real = null;
-            ((this._elementMode & ElementFeatures.CLASSNAME) > 0) && this._className.setReal(null);
-            ((this._elementMode & ElementFeatures.DATASET) > 0) && this._dataset.setReal(null);
+            for (let i = 0; i < this._memberProxies.length; i++) {
+                this._memberProxies[i].setReal(null);
+            }
             if ((this._elementMode & ElementFeatures.CHILDREN) > 0) {
                 for (const child of this._children) {
                     if (child instanceof VirtualSvgElement) {
@@ -705,11 +1077,19 @@ const virtualizeCreateSvgElement = (ScratchBlocks) => {
         }
 
         get id () {
+            return this._kv.get(ElementKeyType.ATTRIBUTE, 'id');
+
             if ((this._elementMode & ElementFeatures.ATTRIBUTES) === 0) this.initAttributes();
             return this.attributes.id;
         }
 
         set id (value) {
+            this._kv.set(ElementKeyType.ATTRIBUTE, 'id', value);
+            if (this.real) {
+                this.real.id = value;
+            }
+            return;
+
             if ((this._elementMode & ElementFeatures.ATTRIBUTES) === 0) this.initAttributes();
             this.attributes.id = value;
             return value;
@@ -725,6 +1105,10 @@ const virtualizeCreateSvgElement = (ScratchBlocks) => {
 
         initClassName () {
             this._elementMode |= ElementFeatures.CLASSNAME;
+            this._className = new VirtualSvgAnimatedString('class', this._kv, ElementKeyType.ATTRIBUTE);
+            this._memberProxies.push(this._className);
+            return;
+
             if ((this._elementMode & ElementFeatures.ATTRIBUTES) === 0) this.initAttributes();
             this._className = new VirtualSvgAnimatedString('class', this.attributes);
         }
@@ -754,9 +1138,11 @@ const virtualizeCreateSvgElement = (ScratchBlocks) => {
 
         initStyle () {
             this._elementMode |= ElementFeatures.STYLE;
-            this._style = new VirtualStyle();
+            this._style = new VirtualStyle(this._kv, ElementKeyType.STYLE, 'style');
+            this._memberProxies.push(this._style);
             if (this.real !== null) {
-                this._style.setReal(this.real.style);
+                // this._style.setReal(this.real.style);
+                this._style.real = this.real.style;
             }
         }
 
@@ -767,9 +1153,11 @@ const virtualizeCreateSvgElement = (ScratchBlocks) => {
 
         initDataset () {
             this._elementMode |= ElementFeatures.DATASET;
-            this._dataset = new VirtualStyle();
+            this._dataset = new VirtualStyle(this._kv, ElementKeyType.DATA, 'dataset');
+            this._memberProxies.push(this._dataset);
             if (this.real !== null) {
-                this._dataset.setReal(this.real.dataset);
+                // this._dataset.setReal(this.real.dataset);
+                this._style.real = this.real.dataset;
             }
         }
 
@@ -802,11 +1190,19 @@ const virtualizeCreateSvgElement = (ScratchBlocks) => {
         }
 
         get textContent () {
+            return this._kv.get(ElementKeyType.PROPERTY, 'textContent');
+
             if ((this._elementMode & ElementFeatures.PROPERTIES) === 0) this.initProperties();
             return this.properties.textContent;
         }
 
         set textContent (value) {
+            this._kv.set(ElementKeyType.PROPERTY, 'textContent', value);
+            if (this.real !== null) {
+                this.real.textContent = value;
+            }
+            return;
+
             if ((this._elementMode & ElementFeatures.PROPERTIES) === 0) this.initProperties();
             this.properties.textContent = value;
             if (this.real !== null) {
@@ -880,11 +1276,13 @@ const virtualizeCreateSvgElement = (ScratchBlocks) => {
         }
 
         hasAttribute (key) {
+            return this._kv.has(ElementKeyType.ATTRIBUTE, key);
             if ((this._elementMode & ElementFeatures.ATTRIBUTES) === 0) this.initAttributes();
             return key in this.attributes;
         }
 
         getAttribute (key) {
+            return this._kv.get(ElementKeyType.ATTRIBUTE, key);
             if ((this._elementMode & ElementFeatures.ATTRIBUTES) === 0) this.initAttributes();
             // console.log('getAttribute', key);
             // if (this.real !== null) {
@@ -894,18 +1292,24 @@ const virtualizeCreateSvgElement = (ScratchBlocks) => {
         }
 
         setAttribute (key, value) {
+            this._kv.set(ElementKeyType.ATTRIBUTE, key, value);
+            if (this.real !== null) {
+                this.real.setAttribute(key, value);
+            }
+            return;
+
             if ((this._elementMode & ElementFeatures.ATTRIBUTES) === 0) this.initAttributes();
             // console.log('setAttribute', key, value);
-            if (!this.attributes[key]) {
-                this._members += 1;
-                this.attributeKeys.push(key);
+            // if (!this.attributes[key]) {
+            //     this._members += 1;
+            //     this.attributeKeys.push(key);
             // } else if (this.real === null) {
             //     console.log('repeat setAttribute in nonreal', key);
             // } else if (!this.attached) {
             //     console.log('repeat setAttribute while detached', key);
             // } else {
             //     console.log('repeat setAttribute after real', key);
-            }
+            // }
             this.attributes[key] = value;
             if (this.real !== null) {
                 if (!attributeSetStyleMap[key]) {
@@ -939,6 +1343,12 @@ const virtualizeCreateSvgElement = (ScratchBlocks) => {
         }
 
         removeAttribute (key) {
+            this._kv.delete(ElementKeyType.ATTRIBUTE, key);
+            if (this.real !== null) {
+                this.real.removeAttribute(key);
+            }
+            return;
+
             if ((this._elementMode & ElementFeatures.ATTRIBUTES) === 0) this.initAttributes();
             if (this.attributes[key]) {
                 this._members -= 1;
@@ -957,6 +1367,13 @@ const virtualizeCreateSvgElement = (ScratchBlocks) => {
         }
 
         setAttributeNS (ns, key, value) {
+            this._kv.setExtra(ElementKeyType.ATTRIBUTENS, key, value, ns);
+            // this.attributesNS[ns][key] = value;
+            if (this.real !== null) {
+                this.real.setAttributeNS(ns, key, value);
+            }
+            return;
+
             // return this.setAttribute(key.substring(6), value);
             if ((this._elementMode & ElementFeatures.ATTRIBUTESNS) === 0) this.initAttributesNS();
             if (!this.attributesNS[ns]) {
@@ -1028,7 +1445,8 @@ const virtualizeCreateSvgElement = (ScratchBlocks) => {
                 }));
             };
             listener.wrapped = _listener;
-            this.events.push([event, listener, capture]);
+            this._kv.setMultiple(ElementKeyType.EVENT, event, listener, capture);
+            // this.events.push([event, listener, capture]);
             if (this.real !== null) {
                 this.real.addEventListener(event, listener, capture);
             }
@@ -1036,13 +1454,18 @@ const virtualizeCreateSvgElement = (ScratchBlocks) => {
 
         removeEventListener (_event, _listener, _capture) {
             if ((this._elementMode & ElementFeatures.EVENTS) === 0) this.initEvents();
-            const index = this.events.findIndex(item => (item[0] === _event && (item[1] === _listener || item[1].wrapped === _listener) && item[2] === _capture));
-            const [event, listener, capture] = this.events[index];
-            if (index > -1) {
-                this.events.splice(index, 1);
-            } else {
-                console.warn('removing non-contained event listener', event, listener);
+            // const index = this.events.findIndex(item => (item[0] === _event && (item[1] === _listener || item[1].wrapped === _listener) && item[2] === _capture));
+            // const [event, listener, capture] = this.events[index];
+            // if (index > -1) {
+            //     this.events.splice(index, 1);
+            // } else {
+            //     console.warn('removing non-contained event listener', event, listener);
+            // }
+            const result = this._kv.deleteMultiple(ElementKeyType.EVENT, _event, _listener, _capture);
+            if (!result) {
+                debugger;
             }
+            const [event, listener, capture] = result
             if (this.real !== null) {
                 this.real.removeEventListener(event, listener, capture);
             }
