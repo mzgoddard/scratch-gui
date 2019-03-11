@@ -525,6 +525,8 @@ const virtualizeCreateSvgElement = (ScratchBlocks) => {
         ATTRIBUTENS: 8
     };
 
+    ElementKeyType.Name = Object.entries(ElementKeyType).reduce((c, [k, v]) => (c[v] = k, c), {});
+
     const emptyTable = {};
     const initIndexMap = [
         emptyTable,
@@ -762,7 +764,7 @@ const virtualizeCreateSvgElement = (ScratchBlocks) => {
             this.attached = false;
             this.destroyPending = false;
             this._kv = new VirtualElementKV();
-            this._children = null;
+            this._children = [];
             this._childNodes = null;
             this.properties = null;
             this.attributes = null;
@@ -819,23 +821,21 @@ const virtualizeCreateSvgElement = (ScratchBlocks) => {
                 for (let i = 0; i < tree.length; i += 2) {
                     const _parent = tree[i];
                     const _this = tree[i + 1];
-                    if ((_this._elementMode & ElementFeatures.CHILDREN) > 0) {
-                        for (let j = 0; j < _this._children.length; j++) {
-                            const _child = _this._children[j];
-                            if (_child instanceof VirtualSvgElement) {
-                                if (_this._parent !== null && _parent !== _this._parent && _this._parent instanceof VirtualSvgElement) {
-                                    const index = _this._parent._children.indexOf(_this);
-                                    if (index > -1) {
-                                        _this._parent._children.splice(index, 1);
-                                    }
+                    for (let j = 0; j < _this._children.length; j++) {
+                        const _child = _this._children[j];
+                        if (_child instanceof VirtualSvgElement) {
+                            if (_this._parent !== null && _parent !== _this._parent && _this._parent instanceof VirtualSvgElement) {
+                                const index = _this._parent._children.indexOf(_this);
+                                if (index > -1) {
+                                    _this._parent._children.splice(index, 1);
                                 }
-                                _this._parent = _parent;
+                            }
+                            _this._parent = _parent;
 
-                                if (_this.destroyPending) {
-                                    _destroySvgElement.revoke(_this);
-                                } else if (_this.real === null) {
-                                    tree.push(_this, _child);
-                                }
+                            if (_this.destroyPending) {
+                                _destroySvgElement.revoke(_this);
+                            } else if (_this.real === null) {
+                                tree.push(_this, _child);
                             }
                         }
                     }
@@ -860,6 +860,16 @@ const virtualizeCreateSvgElement = (ScratchBlocks) => {
                         element = _cached.real;
 
                         const _values = _cached._kv._values;
+
+                        // const _cleanKey = 'clean_' + _cached.tagName + '_' + _values.reduce((c, v, i) => (
+                        //     i % 4 === 0 ?
+                        //         [...c, [ElementKeyType.Name[v]]] :
+                        //     i % 4 === 1 ?
+                        //         [...c.slice(0, c.length - 1), [...c[c.length - 1], v].join(':')] :
+                        //         c
+                        // ), []).join(';');
+                        // svgCacheUse[_cleanKey] = (svgCacheUse[_cleanKey] || 0) + 1;
+
                         for (let i = 0; i < _values.length; i += 4) {
                             switch (_values[i]) {
                             case ElementKeyType.ATTRIBUTE:
@@ -868,14 +878,13 @@ const virtualizeCreateSvgElement = (ScratchBlocks) => {
                             case ElementKeyType.PROPERTY:
                                 delete element[_values[i + 1]];
                                 break;
-                            case ElementKeyType.PROPERTY_ANIMATED:
-                                element.removeAttribute(_values[i + 1]);
-                                break;
-                            case ElementKeyType.PROPERTY_ANIMATED_LENGTH:
-                                element.removeAttribute(_values[i + 1]);
-                                break;
-                            case ElementKeyType.CHILD:
-                                break;
+                            // Nothing using ANIMATED or ANIMATED_LENGTH atm.
+                            // case ElementKeyType.PROPERTY_ANIMATED:
+                            //     element.removeAttribute(_values[i + 1]);
+                            //     break;
+                            // case ElementKeyType.PROPERTY_ANIMATED_LENGTH:
+                            //     element.removeAttribute(_values[i + 1]);
+                            //     break;
                             case ElementKeyType.EVENT:
                                 element.removeEventListener(_values[i + 1], _values[i + 2], _values[i + 3]);
                                 break;
@@ -896,16 +905,15 @@ const virtualizeCreateSvgElement = (ScratchBlocks) => {
                         for (let i = 0; i < _cached._memberProxies.length; i++) {
                             _cached._memberProxies[i].real = null;
                         }
-                        if ((_cached._elementMode & ElementFeatures.CHILDREN) > 0) {
-                            for (let j = 0; j < _cached._children.length; j++) {
-                                const child = _cached._children[j];
-                                if (child instanceof VirtualSvgElement) {
-                                    _destroySvgElement(child);
-                                    const el = child.real;
-                                    el.parentNode && el.parentNode.removeChild(el);
-                                } else if (child.parentNode) {
-                                    child.parentNode.removeChild(child);
-                                }
+
+                        for (let j = 0; j < _cached._children.length; j++) {
+                            const child = _cached._children[j];
+                            if (child instanceof VirtualSvgElement) {
+                                _destroySvgElement(child);
+                                const el = child.real;
+                                el.parentNode && el.parentNode.removeChild(el);
+                            } else if (child.parentNode) {
+                                child.parentNode.removeChild(child);
                             }
                         }
                     } else {
@@ -926,6 +934,16 @@ const virtualizeCreateSvgElement = (ScratchBlocks) => {
 
                     const element = _this.real;
                     const _values = _this._kv._values;
+
+                    // const _setKey = 'set_' + _this.tagName + '_' + _values.reduce((c, v, i) => (
+                    //     i % 4 === 0 ?
+                    //         [...c, [ElementKeyType.Name[v]]] :
+                    //     i % 4 === 1 ?
+                    //         [...c.slice(0, c.length - 1), [...c[c.length - 1], v].join(':')] :
+                    //         c
+                    // ), []).join(';');
+                    // svgCacheUse[_setKey] = (svgCacheUse[_setKey] || 0) + 1;
+
                     for (let i = 0; i < _values.length; i += 4) {
                         switch (_values[i]) {
                         case ElementKeyType.ATTRIBUTE:
@@ -934,18 +952,17 @@ const virtualizeCreateSvgElement = (ScratchBlocks) => {
                         case ElementKeyType.PROPERTY:
                             element[_values[i + 1]] = _values[i + 2];
                             break;
-                        case ElementKeyType.PROPERTY_ANIMATED:
-                            element[_values[i + 1]].baseVal = _values[i + 2];
-                            break;
-                        case ElementKeyType.PROPERTY_ANIMATED_LENGTH:
-                            if (element[_values[i + 1]].baseVal.length > 0) {
-                                element[_values[i + 1]].baseVal[0].valueAsString = _values[i + 2];
-                            } else {
-                                element.setAttribute(_values[i + 1], _values[i + 2]);
-                            }
-                            break;
-                        case ElementKeyType.CHILD:
-                            break;
+                        // Nothing using ANIMATED or ANIMATED_LENGTH atm.
+                        // case ElementKeyType.PROPERTY_ANIMATED:
+                        //     element[_values[i + 1]].baseVal = _values[i + 2];
+                        //     break;
+                        // case ElementKeyType.PROPERTY_ANIMATED_LENGTH:
+                        //     if (element[_values[i + 1]].baseVal.length > 0) {
+                        //         element[_values[i + 1]].baseVal[0].valueAsString = _values[i + 2];
+                        //     } else {
+                        //         element.setAttribute(_values[i + 1], _values[i + 2]);
+                        //     }
+                        //     break;
                         case ElementKeyType.EVENT:
                             element.addEventListener(_values[i + 1], _values[i + 2], _values[i + 3]);
                             break;
@@ -963,15 +980,13 @@ const virtualizeCreateSvgElement = (ScratchBlocks) => {
 
                     // _this._kv.applyAll(_this.real);
 
-                    if ((_this._elementMode & ElementFeatures.CHILDREN) > 0) {
-                        for (let j = 0; j < _this._children.length; j++) {
-                            let el = _this._children[j];
-                            if (el instanceof VirtualSvgElement) {
-                                el = el.real;
-                            }
-                            if (!(el instanceof Node)) debugger;
-                            _this.real.appendChild(el);
+                    for (let j = 0; j < _this._children.length; j++) {
+                        let el = _this._children[j];
+                        if (el instanceof VirtualSvgElement) {
+                            el = el.real;
                         }
+                        if (!(el instanceof Node)) debugger;
+                        _this.real.appendChild(el);
                     }
                 }
 
