@@ -539,6 +539,12 @@ const virtualizeCreateSvgElement = (ScratchBlocks) => {
         emptyTable
     ];
 
+    class VirtualElementKeys {
+        constructor () {
+            this._values = [];
+        }
+    }
+
     class VirtualElementKV {
         constructor () {
             this._index = initIndexMap;
@@ -551,6 +557,14 @@ const virtualizeCreateSvgElement = (ScratchBlocks) => {
 
         get (type, key) {
             return this._values[this._index[type][key] || -1];
+        }
+
+        keys () {
+            const keys = new VirtualElementKV();
+            for (let i = 0; i < this._values.length; i += 4) {
+                keys._values.push(this._values[i], this._values[i + 1], null, null);
+            }
+            return keys;
         }
 
         set (type, key, value) {
@@ -758,7 +772,7 @@ const virtualizeCreateSvgElement = (ScratchBlocks) => {
 
     class VirtualElementCacheNode {
         constructor () {
-            this.node = {
+            this.root = {
                 pending: [],
                 parent: null,
                 children: [
@@ -771,14 +785,15 @@ const virtualizeCreateSvgElement = (ScratchBlocks) => {
                     {},
                     {},
                     {}
-                ]
+                ],
+                childrenFlat: []
             };
         }
 
         _walk (kv) {
             let node = this.root;
             const _values = kv._values;
-            for (let i = 0; i < _values.length && i < 20; i += 4) {
+            for (let i = 0; i < _values.length && i < 8; i += 4) {
                 if (_values[i] === ElementKeyType.UNSET) {
                     continue;
                 } else if (_values[i] === ElementKeyType.EVENT) {
@@ -786,7 +801,7 @@ const virtualizeCreateSvgElement = (ScratchBlocks) => {
                 } else if (node.children[_values[i]][_values[i + 1]]) {
                     node = node.children[_values[i]][_values[i + 1]];
                 } else {
-                    node = node.children[_values[i]][_values[i + 1]] = {
+                    const newNode = {
                         pending: [],
                         parent: node,
                         children: [
@@ -799,26 +814,53 @@ const virtualizeCreateSvgElement = (ScratchBlocks) => {
                             {},
                             {},
                             {}
-                        ]
+                        ],
+                        childrenFlat: []
                     };
+                    node.childrenFlat.push(newNode);
+                    node = node.children[_values[i]][_values[i + 1]] = newNode;
                 }
             }
             return node;
         }
 
         add (kv, el) {
-            this._walk(kv).pending.push(el);
+            const pending = this._walk(kv).pending;
+            const index = pending.indexOf(el);
+            if (index === -1) {
+                pending.push(el);
+            } else {
+                // console.warn('double adding to element cache');
+            }
         }
 
         remove (kv, el) {
             const pending = this._walk(kv).pending;
-            pending.splice(pending.indexOf(el), 1);
+            const index = pending.indexOf(el);
+            if (index === -1) {
+                throw new Error('removing element not in cache');
+            }
+            pending.splice(index, 1);
         }
 
         find (kv) {
             let node = this._walk(kv);
             while (node.pending.length === 0 && node.parent !== null) {
                 node = node.parent;
+                for (let i = 0; i < node.childrenFlat.length; i++) {
+                    if (node.childrenFlat[i].pending.length) {
+                        node = node.childrenFlat[i];
+                        return node.pending.pop() || null;
+                    } else {
+                        const subnode = node.childrenFlat[i];
+                        for (let j = 0; j < subnode.childrenFlat.length; j++) {
+                            if (subnode.childrenFlat[j].pending.length) {
+                                node = subnode.childrenFlat[j];
+                                return node.pending.pop() || null;
+                            }
+                        }
+                    }
+                }
             }
             return node.pending.pop() || null;
         }
@@ -923,24 +965,49 @@ const virtualizeCreateSvgElement = (ScratchBlocks) => {
                     //         _cacheUse.high += 1;
                     //     }
                     // }
-
+                    const _cached = _cache[_this.tagName] && _cache[_this.tagName].find(_this._kv);
 
                     if (_cached) {
+                        // if (!_cached.real) {
+                        //     throw new Error('cache item missing element');
+                        // } else if (!_cached.destroyPending) {
+                        //     throw new Error('cache item should have been removed from cache');
+                        // }
+
                         _cached.destroyPending = false;
                         element = _cached.real;
 
                         const _values = _cached._kv._values;
 
-                        const _cleanKey = 'clean_' + _cached.tagName + '_' + _values.reduce((c, v, i) => (
-                            i % 4 === 0 ?
-                                [...c, [ElementKeyType.Name[v]]] :
-                            i % 4 === 1 ?
-                                [...c.slice(0, c.length - 1), [...c[c.length - 1], v].join(':')] :
-                                c
-                        ), []).join(';');
-                        svgCacheUse[_cleanKey] = (svgCacheUse[_cleanKey] || 0) + 1;
+                        // const _cleanKey = 'clean_' + _cached.tagName + '_' + _values.reduce((c, v, i) => (
+                        //     i % 4 === 0 ?
+                        //         [...c, [ElementKeyType.Name[v]]] :
+                        //     i % 4 === 1 ?
+                        //         [...c.slice(0, c.length - 1), [...c[c.length - 1], v].join(':')] :
+                        //         c
+                        // ), []).join(';');
+                        // svgCacheUse[_cleanKey] = (svgCacheUse[_cleanKey] || 0) + 1;
 
-                        for (let i = 0; i < _values.length; i += 4) {
+                        const _thisValues = _this._kv._values;
+                        let agreedIndex = Math.min(_values.length, _thisValues.length);
+                        for (let i = 0; i < agreedIndex; i += 4) {
+                            if (_values[i] === ElementKeyType.EVENT || _values[i] === ElementKeyType.UNSET) {
+                                continue;
+                            } else if (_values[i] !== _thisValues[i] || _values[i + 1] !== _thisValues[i + 1]) {
+                                agreedIndex = i;
+                                break;
+                            }
+                        }
+                        // for (let i = Math.min(_values.length, _thisValues.length) - 4; i >= 0; i -= 4) {
+                        //     if (_values[i] === ElementKeyType.EVENT || _values[i] === ElementKeyType.UNSET) {
+                        //         continue;
+                        //     } else if (_values[i] === _thisValues[i] && _values[i + 1] === _thisValues[i + 1]) {
+                        //         agreedIndex = i;
+                        //         break;
+                        //     }
+                        // }
+
+                        for (let i = agreedIndex; i < _values.length; i += 4) {
                             switch (_values[i]) {
                             case ElementKeyType.ATTRIBUTE:
                                 element.removeAttribute(_values[i + 1]);
@@ -970,6 +1037,14 @@ const virtualizeCreateSvgElement = (ScratchBlocks) => {
                             }
                         }
 
+                        for (let i = 0; i < agreedIndex; i += 4) {
+                            switch (_values[i]) {
+                            case ElementKeyType.EVENT:
+                                element.removeEventListener(_values[i + 1], _values[i + 2], _values[i + 3]);
+                                break;
+                            }
+                        }
+
                         const real = _cached.real;
                         _cached.real = null;
                         for (let i = 0; i < _cached._memberProxies.length; i++) {
@@ -979,7 +1054,15 @@ const virtualizeCreateSvgElement = (ScratchBlocks) => {
                         for (let j = 0; j < _cached._children.length; j++) {
                             const child = _cached._children[j];
                             if (child instanceof VirtualSvgElement) {
-                                _destroySvgElement(child);
+                                // _destroySvgElement(child);
+                                child.destroyPending = true;
+                                const {tagName} = child;
+                                if (!_cache[tagName]) {
+                                    _cache[tagName] = new VirtualElementCacheNode();
+                                }
+                                _cache[tagName].add(child._kv, child);
+                                child._keys = child._kv.keys();
+
                                 const el = child.real;
                                 el.parentNode && el.parentNode.removeChild(el);
                             } else if (child.parentNode) {
@@ -1005,14 +1088,14 @@ const virtualizeCreateSvgElement = (ScratchBlocks) => {
                     const element = _this.real;
                     const _values = _this._kv._values;
 
-                    const _setKey = 'set_' + _this.tagName + '_' + _values.reduce((c, v, i) => (
-                        i % 4 === 0 ?
-                            [...c, [ElementKeyType.Name[v]]] :
-                        i % 4 === 1 ?
-                            [...c.slice(0, c.length - 1), [...c[c.length - 1], v].join(':')] :
-                            c
-                    ), []).join(';');
-                    svgCacheUse[_setKey] = (svgCacheUse[_setKey] || 0) + 1;
+                    // const _setKey = 'set_' + _this.tagName + '_' + _values.reduce((c, v, i) => (
+                    //     i % 4 === 0 ?
+                    //         [...c, [ElementKeyType.Name[v]]] :
+                    //     i % 4 === 1 ?
+                    //         [...c.slice(0, c.length - 1), [...c[c.length - 1], v].join(':')] :
+                    //         c
+                    // ), []).join(';');
+                    // svgCacheUse[_setKey] = (svgCacheUse[_setKey] || 0) + 1;
 
                     for (let i = 0; i < _values.length; i += 4) {
                         switch (_values[i]) {
@@ -1805,7 +1888,8 @@ const virtualizeCreateSvgElement = (ScratchBlocks) => {
         if (!_cache[tagName]) {
             _cache[tagName] = new VirtualElementCacheNode();
         }
-        _cache[tagName].add(el._kv);
+        _cache[tagName].add(el._kv, el);
+        el._keys = el._kv.keys();
         // if (_members < 2) {
         //     if (!_cache[tagName]) {
         //         _cache[tagName] = [];
@@ -1829,7 +1913,9 @@ const virtualizeCreateSvgElement = (ScratchBlocks) => {
 
     _destroySvgElement.revoke = function (el) {
         const {tagName} = el;
-        _cache[tagName].remove(el._kv);
+        console.log('revoke', tagName);
+        _cache[tagName].remove(el._keys, el);
+        el.destroyPending = false;
 
         // const index = _cache[tagName].indexOf(el);
         // if (index > -1) {
