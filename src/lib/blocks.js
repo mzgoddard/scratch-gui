@@ -323,5 +323,80 @@ export default function (vm) {
         vm.runtime.emit('PLAY_NOTE', noteNum, extensionId);
     };
 
+    const LOCALIZED_KEY_RE = /[a-zA-Z][a-zA-Z0-9_]*/;
+    const localizeKey = function (rawKey, parseInterpolationTokens) {
+        var keyUpper = rawKey.toUpperCase();
+
+        var bklyKey = keyUpper.startsWith('BKY_') ? keyUpper.substring(4) : null;
+        if (bklyKey && bklyKey in ScratchBlocks.Msg) {
+            var rawValue = ScratchBlocks.Msg[bklyKey];
+            if (typeof rawValue === 'string') {
+                return ScratchBlocks.utils.tokenizeInterpolation(rawValue);
+            } else if (parseInterpolationTokens) {
+                return String(rawValue);
+            } else {
+                return rawValue;
+            }
+        } else {
+            // No entry found in the string table. Pass reference as string.
+            return '%{' + rawKey + '}';
+        }
+    };
+
+    ScratchBlocks.utils.tokenizeInterpolation_ = function(s,
+        parseInterpolationTokens) {
+        const _t = [];
+        let start = 0;
+        let c;
+        for (let i = 0; i < s.length;) {
+            for (c = s[i++]; i < s.length && c !== '%'; c = s[i++]) {}
+            if (c === '%') {
+                c = s[i++];
+                if (c === '{') {
+                    const curlyStart = i;
+
+                    for (c = s[i++]; i < s.length && c !== '}'; c = s[i++]) {}
+                    if (c === '}') {
+                        _t.push(s.substring(start, curlyStart - 2));
+
+                        const rawKey = s.substring(curlyStart, i - 1);
+                        if (LOCALIZED_KEY_RE.test(rawKey)) {
+                            const subTokens = localizeKey(rawKey, parseInterpolationTokens);
+                            if (subTokens.length > 0) {
+                                if (
+                                    typeof subTokens[0] === 'string' &&
+                                    typeof _t[_t.length - 1] === 'string'
+                                ) {
+                                    _t[_t.length - 1] += subTokens[0];
+                                    _t.push(...subTokens.slice(1));
+                                } else {
+                                    _t.push(...subTokens);
+                                }
+                            }
+                        } else {
+                            _t.push('%{' + rawKey + '}');
+                        }
+
+                        start = i;
+                    }
+                } else if (parseInterpolationTokens && c >= '0' && c <= '9') {
+                    _t.push(s.substring(start, i - 2));
+                    start = i - 1;
+
+                    for (c = s[i++]; i < s.length && c >= '0' && c <= '9'; c = s[i++]) {}
+                    if (c < '0' || c > '9' || typeof c === 'undefined') {
+                        _t.push(parseInt(s.substring(start, i - 1), 10));
+                        start = i - 1;
+                        i--;
+                    }
+                }
+            }
+        }
+        if (start !== s.length) {
+            _t.push(s.substring(start));
+        }
+        return _t;
+    };
+
     return ScratchBlocks;
 }
