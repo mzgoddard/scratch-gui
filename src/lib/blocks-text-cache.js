@@ -6,6 +6,8 @@ export default function (ScratchBlocks) {
     // A cache of element class name to text content/text width pairs.
     const textRenderCache = {};
 
+    const fontCanvas = {};
+
     // Wrap Field.getCachedWidth. Use a nested cache, it'll be faster
     // than concatenating a key every visit to this function.
     const _getCachedWidth = ScratchBlocks.Field.getCachedWidth;
@@ -17,10 +19,20 @@ export default function (ScratchBlocks) {
             if (_cached) {
                 return _cached;
             }
-            return textRenderCache[className][textContent] = _getCachedWidth.call(this, text);
+
+            const metrics = fontCanvas[className].measureText(textContent);
+            return textRenderCache[className][textContent] = metrics.width;
         }
+
+        const canvas = document.createElement('canvas');
+        const context = canvas.getContext('2d');
+        const computedStyle = window.getComputedStyle(text);
+        context.font = computedStyle.font;
+        fontCanvas[className] = context;
+
         textRenderCache[className] = {};
-        return textRenderCache[className][textContent] = _getCachedWidth.call(this, text);
+        const metrics = context.measureText(textContent);
+        return textRenderCache[className][textContent] = metrics.width;
     };
 
     // Create a <text class="blocklyText"></text>
