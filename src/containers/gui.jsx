@@ -165,10 +165,10 @@ const mapStateToProps = state => {
         loadingStateVisible: state.scratchGui.modals.loadingProject,
         projectId: state.scratchGui.projectState.projectId,
         soundsTabVisible: state.scratchGui.editorTab.activeTabIndex === SOUNDS_TAB_INDEX,
-        targetIsStage: (
-            state.scratchGui.targets.stage &&
-            state.scratchGui.targets.stage.id === state.scratchGui.targets.editingTarget
-        ),
+        // targetIsStage: (
+        //     state.scratchGui.targets.stage &&
+        //     state.scratchGui.targets.stage.id === state.scratchGui.targets.editingTarget
+        // ),
         telemetryModalVisible: state.scratchGui.modals.telemetryModal,
         tipsLibraryVisible: state.scratchGui.modals.tipsLibrary,
         vm: state.scratchGui.vm

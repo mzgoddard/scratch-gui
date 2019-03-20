@@ -48,6 +48,33 @@ const messages = defineMessages({
     }
 });
 
+const _CostumeTabText = ({targetIsStage}) => (
+    targetIsStage ? (
+        <FormattedMessage
+            defaultMessage="Backdrops"
+            description="Button to get to the backdrops panel"
+            id="gui.gui.backdropsTab"
+        />
+    ) : (
+        <FormattedMessage
+            defaultMessage="Costumes"
+            description="Button to get to the costumes panel"
+            id="gui.gui.costumesTab"
+        />
+    )
+);
+
+const _CostumeTabText_mapStateToProps = state => ({
+    targetIsStage: (
+        state.scratchGui.targets.stage &&
+        state.scratchGui.targets.stage.id === state.scratchGui.targets.editingTarget
+    )
+});
+
+const CostumeTabText = connect(
+    _CostumeTabText_mapStateToProps
+)(_CostumeTabText);
+
 // Cache this value to only retrieve it once the first time.
 // Assume that it doesn't change for a session.
 let isRendererSupported = null;
@@ -108,7 +135,7 @@ const GUIComponent = props => {
         showComingSoon,
         soundsTabVisible,
         stageSizeMode,
-        targetIsStage,
+        // targetIsStage,
         telemetryModalVisible,
         tipsLibraryVisible,
         vm,
@@ -253,19 +280,7 @@ const GUIComponent = props => {
                                             draggable={false}
                                             src={costumesIcon}
                                         />
-                                        {targetIsStage ? (
-                                            <FormattedMessage
-                                                defaultMessage="Backdrops"
-                                                description="Button to get to the backdrops panel"
-                                                id="gui.gui.backdropsTab"
-                                            />
-                                        ) : (
-                                            <FormattedMessage
-                                                defaultMessage="Costumes"
-                                                description="Button to get to the costumes panel"
-                                                id="gui.gui.costumesTab"
-                                            />
-                                        )}
+                                        <CostumeTabText />
                                     </Tab>
                                     <Tab
                                         className={tabClassNames.tab}
@@ -400,7 +415,7 @@ GUIComponent.propTypes = {
     showComingSoon: PropTypes.bool,
     soundsTabVisible: PropTypes.bool,
     stageSizeMode: PropTypes.oneOf(Object.keys(STAGE_SIZE_MODES)),
-    targetIsStage: PropTypes.bool,
+    // targetIsStage: PropTypes.bool,
     telemetryModalVisible: PropTypes.bool,
     tipsLibraryVisible: PropTypes.bool,
     vm: PropTypes.instanceOf(VM).isRequired
