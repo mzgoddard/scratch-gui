@@ -128,6 +128,161 @@ const loadComponent = function (load) {
     };
 };
 
+() => (
+    loading ?
+        <Placeholder /> :
+        <Component />
+)
+
+() => <Placeholder />
+() => <Component />
+
+(WrappedComponent) => (
+    ({ready, weight, children, ...props}) => (
+        ready ?
+            weight < 0 ?
+                <WrappedComponent {...props>{children}</WrappedComponent> :
+                <Placeholder {...props}>{children}</Placeholder> :
+            <Placeholder {...props}>{children}</Placeholder>
+    )
+);
+
+const Gate = (WrappedComponent, Placeholder = () => null) => (
+    ({ready, children, ...props}) => (
+        ready ?
+            <WrappedComponent {...props>{children}</WrappedComponent> :
+            <Placeholder {...props}>{children}</Placeholder>
+    )
+);
+
+const Example = compose(
+    Gate(
+        compose(
+            Gate(
+                compose(
+                    connect(state => ({ready: ...})),
+                    Placeholder(() => <Loading />)
+                )
+            ),
+            connect(state => ({priority: ...})),
+            Schedule,
+            Placeholder(() => <Loading />)
+        )
+    ),
+    GateOnce(
+        compose(
+            GateOnce(state => ({priority: ...}),
+                compose(
+                    Placeholder(() => <Loading />),
+                    GateOnceEnd
+                )
+            ),
+            connect(state => ({priority: ...})),
+            Schedule,
+            Placeholder(() => <Loading />),
+            GateOnceEnd
+        )
+    ),
+    Load(() => require('./some-component.jsx'))
+);
+
+const PortalOn = ({signal}) => {
+    signal.resolve();
+    return null;
+};
+
+class Portal {
+    constructor (props) {
+        super(props);
+
+        this.state = {ready: false};
+        props.signal.then(() => {
+            this.setState({ready});
+        });
+    }
+
+    render () {
+        const {
+            children,
+            signal: {ready}
+        } = this.props;
+        return ready ? children : null;
+    }
+}
+
+class Signal {
+    constructor () {
+        this.ready = false;
+        this._then = [];
+    }
+
+    then (resolve) {
+        if (this._then !== null) {
+            this._then.push(resolve);
+        } else {
+            resolve();
+        }
+    }
+
+    resolve () {
+        if (this.ready) return;
+        this.ready = true;
+        this._then.forEach(then => then());
+        this._then = null;
+    }
+}
+
+const createSignal = () => {
+
+}
+
+const gateHOC = Lock => {
+    class {
+        constructor (props) {
+            super(props);
+
+            this.signal = new Signal();
+        }
+
+        render () {
+            const {signal} = this;
+            const {
+                children,
+                ...props
+            } = this.props;
+            return (
+                <React.Fragment>
+                    {signal.ready ? null : <Lock><PortalOn signal={signal} /></Lock>}
+                    <Portal signal={signal}>
+                        <WrappedComponent {...props}>{children}</WrappedComponent>
+                    </Portal>
+                </React.Fragment>
+            );
+        }
+    }
+}
+
+(WrappedComponent) => (
+    ({ready, children, ...props}) => (
+        ready ?
+            <WrappedComponent {...props}>{children}</WrappedComponent> :
+            <Placeholder {...props}>{children}</Placeholder>
+    )
+);
+
+(WrappedComponent) => (
+    ({ready, weight, children, ...props}) => (
+        <Ready ready={ready} placeholder={Placeholder}>
+            <Wait weight={weight} placeholder={Placeholder}>
+                <WrappedComponent />
+            </Wait>
+        </Ready>
+    )
+);
+
+// null -> ready()
+// null -> false
+
 // A HOC to delay rendering a part of the app. It keeps a boolean state and once
 // true will always render the passed component and props.
 //
