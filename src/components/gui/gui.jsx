@@ -44,6 +44,27 @@ const messages = defineMessages({
     }
 });
 
+// const lazyRequire = compose(
+//     delayHOC.addProps({priority: 1}),
+//     delayHOC.Schedule,
+//     delayHOC.Gate
+// );
+//
+// const lazyRender = load => {
+//     return compose(
+//         connect(state => ({
+//             priority: delayHOC.loading(state) ? 2 : -1
+//         })),
+//         delayHOC.Schedule,
+//         compose(
+//             delayHOC.Placeholder
+//             lazyRequire,
+//             delayHOC.loadNull
+//         )(load),
+//         delayHOC.loadComponent
+//     )(load);
+// };
+
 const lazyRequire = delayHOC({
     ready: true,
     stall: true,
@@ -74,6 +95,14 @@ const StageWrapper = lazyRender(() => require('../../containers/stage-wrapper.js
 const CostumeTab = lazyRender(() => require('../../containers/costume-tab.jsx'));
 
 const SoundTab = lazyRender(() => require('../../containers/sound-tab.jsx'));
+
+// const Blocks = compose(
+//     connect(state => ({ready: !delayHOC.fetching(state)})),
+//     delayHOC.Gate,
+//     connect(state => ({priority: delayHOC.loading(state) ? 10 : -1})),
+//     delayHOC.Schedule,
+//     delayHOC.Gate
+// )(() => require('../../containers/blocks.jsx'));
 
 // Blocks is another part we don't need to render until later.
 const Blocks = delayHOC({
