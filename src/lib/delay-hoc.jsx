@@ -1,6 +1,7 @@
 import PropTypes from 'prop-types';
 import React from 'react';
 import {connect} from 'react-redux';
+import {compose} from 'redux';
 
 import {
     LoadingState,
@@ -50,7 +51,12 @@ const removeFromPool = target => {
     }
 };
 
-const addToPool = (weight, target) => {
+const addToPool = (weight, target, _resolve) => {
+    if (weight < 0) {
+        _resolve();
+        return;
+    }
+
     return new Promise(resolve => {
         removeFromPool();
 
@@ -79,6 +85,7 @@ const addToPool = (weight, target) => {
                     pool[0][2]();
                 }
             });
+            _resolve();
         });
 };
 
@@ -128,99 +135,28 @@ const loadComponent = function (load) {
     };
 };
 
-() => (
-    loading ?
-        <Placeholder /> :
-        <Component />
-)
-
-() => <Placeholder />
-() => <Component />
-
-(WrappedComponent) => (
-    ({ready, weight, children, ...props}) => (
-        ready ?
-            weight < 0 ?
-                <WrappedComponent {...props>{children}</WrappedComponent> :
-                <Placeholder {...props}>{children}</Placeholder> :
-            <Placeholder {...props}>{children}</Placeholder>
-    )
-);
-
-const Gate = (WrappedComponent, Placeholder = () => null) => (
-    ({ready, children, ...props}) => (
-        ready ?
-            <WrappedComponent {...props>{children}</WrappedComponent> :
-            <Placeholder {...props}>{children}</Placeholder>
-    )
-);
-
-const Example = compose(
-    Gate(
-        compose(
-            Gate(
-                compose(
-                    connect(state => ({ready: ...})),
-                    Placeholder(() => <Loading />)
-                )
-            ),
-            connect(state => ({priority: ...})),
-            Schedule,
-            Placeholder(() => <Loading />)
-        )
-    ),
-    GateOnce(
-        compose(
-            GateOnce(state => ({priority: ...}),
-                compose(
-                    Placeholder(() => <Loading />),
-                    GateOnceEnd
-                )
-            ),
-            connect(state => ({priority: ...})),
-            Schedule,
-            Placeholder(() => <Loading />),
-            GateOnceEnd
-        )
-    ),
-    Load(() => require('./some-component.jsx'))
-);
-
-const PortalOn = ({signal}) => {
-    signal.resolve();
-    return null;
-};
-
-class Portal {
-    constructor (props) {
-        super(props);
-
-        this.state = {ready: false};
-        props.signal.then(() => {
-            this.setState({ready});
-        });
-    }
-
-    render () {
-        const {
-            children,
-            signal: {ready}
-        } = this.props;
-        return ready ? children : null;
-    }
-}
-
 class Signal {
-    constructor () {
-        this.ready = false;
+    constructor (ready = false) {
+        this.ready = ready;
         this._then = [];
     }
 
-    then (resolve) {
+    then (resolve, reject) {
         if (this._then !== null) {
-            this._then.push(resolve);
+            return new Promise((_resolve, _reject) => this._then.push(() => {
+                try {
+                    resolve();
+                    _resolve();
+                } catch (e) {
+                    reject(e);
+                    _reject(e);
+                }
+            }));
         } else {
-            resolve();
+            return new Promise(_resolve => {
+                resolve();
+                _resolve();
+            }).then(null, reject);
         }
     }
 
@@ -232,56 +168,281 @@ class Signal {
     }
 }
 
-const createSignal = () => {
+const ifElse = (test, _if, _else) => (test ? _if : _else = null);
 
-}
+const _ChildrenReady = ({ready, children}) => ifElse(ready, children);
 
-const gateHOC = Lock => {
-    class {
-        constructor (props) {
-            super(props);
+const _elseIfReady = _Else => _If => (
+    ({ready, children, ...props}) => ifElse(
+        ready, <_If {...props}>{children}</_If>, <_Else {...props} />
+    )
+);
 
-            this.signal = new Signal();
-        }
+const _Null = () => null;
 
-        render () {
-            const {signal} = this;
-            const {
-                children,
-                ...props
-            } = this.props;
-            return (
-                <React.Fragment>
-                    {signal.ready ? null : <Lock><PortalOn signal={signal} /></Lock>}
-                    <Portal signal={signal}>
-                        <WrappedComponent {...props}>{children}</WrappedComponent>
-                    </Portal>
-                </React.Fragment>
-            );
+const RawGate = _elseIfReady(_Null);
+
+const ReadySignal = ({signal}) => {
+    signal.resolve();
+    return null;
+};
+
+class _ReadySet extends React.Component{
+    constructor (props, args) {
+        super(props);
+
+        this.state = {ready: null};
+        this.args = args;
+    }
+
+    componentWillUnmount () {
+        this.stop();
+    }
+
+    start () {}
+
+    stop () {
+        this.state.ready = null;
+    }
+
+    ready () {
+        if (this.state.ready === false) {
+            this.setState({ready: true});
+        } else {
+            this.state.ready = true;
         }
     }
 }
 
-(WrappedComponent) => (
+class _ReadyPortal extends _ReadySet {
+    constructor (props, signal = props.signal || new Signal()) {
+        super(props, {signal: signal});
+
+        this.start(props, this.args);
+
+        if (!this.state.ready === null) {
+            this.state.ready = false;
+        }
+    }
+
+    componentDidUpdate () {
+        this.start(this.props, this.args);
+    }
+
+    start (_, {signal}) {
+        signal.then(() => this.ready());
+    }
+}
+
+const _Portal = WrappedComponent => (
+    class _Portal extends _ReadyPortal {
+        constructor (props) {
+            super(props);
+        }
+
+        render () {
+            const {signal, children, ...props} = this.props;
+            const {ready} = this.state;
+            return (<WrappedComponent signal={this.args.signal} ready={ready} {...props}>
+                {children}
+            </WrappedComponent>);
+        }
+    }
+);
+
+const Portal = _Portal(_ChildrenReady);
+
+const wrapRemove = remover => WrappedComponent => (
+    ({children, ...props}) => (
+        <WrappedComponent {...remover(props)}>{children}</WrappedComponent>
+    )
+);
+
+const removeSignalProp = wrapRemove(({signal, ...props}) => props);
+
+const ReadyGate = Action => Lock => WrappedComponent => (
     ({ready, children, ...props}) => (
-        ready ?
-            <WrappedComponent {...props}>{children}</WrappedComponent> :
-            <Placeholder {...props}>{children}</Placeholder>
+        <React.Fragment>
+            {ifElse(ready, null, <Lock {...props}><Action {...props} /></Lock>)}
+            <WrappedComponent {...props}>{children}</WrappedComponent>
+        </React.Fragment>
     )
 );
 
-(WrappedComponent) => (
-    ({ready, weight, children, ...props}) => (
-        <Ready ready={ready} placeholder={Placeholder}>
-            <Wait weight={weight} placeholder={Placeholder}>
-                <WrappedComponent />
-            </Wait>
-        </Ready>
+const SignalGate = Lock => WrappedComponent => (
+    _Portal(
+        ReadyGate(
+            ReadySignal
+        )(
+            removeSignalProp(Lock)
+        )(
+            _Portal(removeSignalProp(WrappedComponent))
+        )
     )
 );
 
-// null -> ready()
-// null -> false
+class _ReadyPoolEntrant extends _ReadySet {
+    constructor (props, args) {
+        super(props, args);
+
+        this.start(props, args);
+
+        if (!this.state.ready === null) {
+            this.state.ready = false;
+        }
+    }
+
+    componentWillReceiveProps (newProps) {
+        this.start(newProps, this.args);
+    }
+}
+
+class PoolEntrant extends _ReadyPoolEntrant {
+    start ({priority}) {
+        addToPool(priority, this, () => this.ready());
+    }
+
+    stop () {
+        removeFromPool(this);
+    }
+
+    render () {
+        return this.state.ready ? this.props.children : null;
+    }
+}
+
+const _Schedule = ({priority, children}) => (
+    <PoolEntrant priority={priority}>{children}</PoolEntrant>
+);
+
+const Schedule = WrappedComponent => (
+    ({priority, children, ...props}) => (
+        <_Schedule priority={priority}>
+            <WrappedComponent ready {...props}>{children}</WrappedComponent>
+        </_Schedule>
+    )
+);
+
+// const Schedule = WrappedComponent => (
+//     SignalGate(_Schedule)(WrappedComponent)
+// );
+
+const Placeholder = _elseIfReady;
+
+// const Placeholder = _Else => _If => _elseIfReady(
+//     _Else
+// )(
+//     ({children, ...props}) => <_If ready {...props}>{children}</_If>
+// );
+
+const Gate = Lock => WrappedComponent => (
+    SignalGate(Lock)(RawGate(WrappedComponent))
+);
+
+const Delay = ({ready, stall, weight, placeholder: _placeholder}) => (WrappedComponent) => {
+
+    // return WrappedComponent;
+    let Delay = WrappedComponent;
+
+    // let Delay = WrappedComponent => WrappedComponent;
+    if (stall) {
+        // if (_placeholder) {
+        //     Delay = Placeholder(_placeholder)(({children}) => children);
+        // }
+
+        let weightState = weight;
+        if (typeof weight !== 'function') {
+            weightState = state => weight || 0;
+        }
+
+        let stallState = weightState;
+        if (typeof stall === 'function') {
+            stallState = state => stall(state) ? weightState(state) : -1;
+        }
+
+        Delay = compose(
+            connect(state => (console.log('priority', stallState(state)), {
+                // ready: true,
+                priority: stallState(state)
+            })),
+            Schedule,
+            (_placeholder ? Placeholder(_placeholder) : RawGate)
+        )(Delay);
+        // Delay = Gate(compose(
+        //     connect(state => ({
+        //         priority: stallState(state)
+        //     })),
+        //     Schedule
+        // )(Delay));
+    }
+
+    // return Delay;
+
+    if (typeof ready === 'function') {
+        // if (_placeholder) {
+        //     Delay = Placeholder(_placeholder);
+        // }
+
+        // return compose(
+        //     connect(state => ({
+        //         ready: ready(state)
+        //     })),
+        //     RawGate
+        // )(WrappedComponent);
+        // return Gate(compose(
+        //     connect(state => ({
+        //         ready: ready(state)
+        //     }))
+        // )(WrappedComponent => WrappedComponent));
+
+        Delay = compose(
+            connect(state => (console.log('ready', ready(state)), {
+                ready: ready(state)
+            })),
+            (_placeholder ? Placeholder(_placeholder) : RawGate)
+        )(Delay);
+        // Delay = Gate(compose(
+        //     connect(state => ({
+        //         ready: ready(state)
+        //     }))
+        // )(Delay));
+    }
+
+    // return WrappedComponent;
+
+    return Delay;
+};
+
+// const Example = compose(
+//     Gate(
+//         compose(
+//             Gate(
+//                 compose(
+//                     connect(state => ({ready: ...})),
+//                     Placeholder(() => <Loading />)
+//                 )
+//             ),
+//             connect(state => ({priority: ...})),
+//             Schedule,
+//             Placeholder(() => <Loading />)
+//         )
+//     ),
+//     GateOnce(
+//         compose(
+//             GateOnce(state => ({priority: ...}),
+//                 compose(
+//                     Placeholder(() => <Loading />),
+//                     GateOnceEnd
+//                 )
+//             ),
+//             connect(state => ({priority: ...})),
+//             Schedule,
+//             Placeholder(() => <Loading />),
+//             GateOnceEnd
+//         )
+//     ),
+//     Load(() => require('./some-component.jsx'))
+// );
 
 // A HOC to delay rendering a part of the app. It keeps a boolean state and once
 // true will always render the passed component and props.
@@ -292,128 +453,128 @@ const gateHOC = Lock => {
 //   - 0 if we should render on the next setTimeout callback
 //   - >0 if we want the delayed renders to be render from lowest to highest
 
-const Delay = ({ready, stall, weight, placeholder: _placeholder}) => (WrappedComponent) => {
-    const _ready = typeof ready !== 'function' ? ready : false;
-    const _stall = typeof stall !== 'function' ? stall : false;
-    const _weight = typeof weight !== 'function' ? weight : 0;
-
-    class Delay extends React.Component {
-        constructor (props) {
-            super(props);
-
-            this.state = {
-                shouldRender: null
-            };
-
-            this.operate(this.props);
-
-            if (!this.state.shouldRender) {
-                this.state.shouldRender = false;
-            }
-        }
-
-        componentWillUnmount () {
-            removeFromPool(this);
-            this.state.shouldRender = true;
-        }
-
-        componentWillReceiveProps (newProps) {
-            this.operate(newProps);
-        }
-
-        shouldComponentUpdate (newProps, newState) {
-            if (this.state.shouldRender !== newState.shouldRender) {
-                return true;
-            }
-            const {
-                ready,
-                stall,
-                weight,
-                placeholder,
-                ...nonHocProps
-            } = newProps;
-            for (const key in nonHocProps) {
-                if (nonHocProps[key] !== this.props[key]) {
-                    return true;
-                }
-            }
-            return false;
-        }
-
-        operate (newProps) {
-            const {ready = _ready} = newProps;
-            if (!this.state.shouldRender && ready) {
-                const {stall = _stall, weight = _weight} = newProps;
-
-                if (stall) {
-                    addToPool(weight, this)
-                        .then(() => {
-                            if (!this.state.shouldRender) {
-                                this.setState({
-                                    shouldRender: true
-                                });
-                            }
-                        });
-                    return;
-                }
-
-                removeFromPool(this);
-
-                if (this.state.shouldRender === false) {
-                    this.setState({
-                        shouldRender: true
-                    });
-                } else {
-                    this.state.shouldRender = true;
-                }
-            }
-        }
-
-        render () {
-            if (this.state.shouldRender) {
-                const {
-                    ready,
-                    stall,
-                    weight,
-                    placeholder,
-                    children,
-                    ...componentProps
-                } = this.props;
-                return (<WrappedComponent {...componentProps}>
-                    {children}
-                </WrappedComponent>);
-            }
-
-            const {placeholder = _placeholder} = this.props;
-            return placeholder ? placeholder(this.props) : null;
-        }
-    }
-
-    Delay.propTypes = {
-        placeholder: PropTypes.func,
-        ready: PropTypes.bool,
-        stall: PropTypes.bool,
-        weight: PropTypes.number
-    };
-
-    if (typeof ready === 'function' || typeof stall === 'function' || typeof weight === 'function') {
-        const mapStateToProps = (state, props) => {
-            const result = {};
-            if (typeof ready === 'function') {
-                result.ready = ready(state, props);
-            }
-            if (typeof stall === 'function') {
-                result.stall = stall(state, props);
-            }
-            if (typeof weight === 'function') {
-                result.weight = weight(state, props);
-            }
-            return result;
-        };
-        return connect(mapStateToProps)(Delay);
-    }
-    return Delay;
-};
+// const Delay = ({ready, stall, weight, placeholder: _placeholder}) => (WrappedComponent) => {
+//     const _ready = typeof ready !== 'function' ? ready : false;
+//     const _stall = typeof stall !== 'function' ? stall : false;
+//     const _weight = typeof weight !== 'function' ? weight : 0;
+//
+//     class Delay extends React.Component {
+//         constructor (props) {
+//             super(props);
+//
+//             this.state = {
+//                 shouldRender: null
+//             };
+//
+//             this.operate(this.props);
+//
+//             if (!this.state.shouldRender) {
+//                 this.state.shouldRender = false;
+//             }
+//         }
+//
+//         componentWillUnmount () {
+//             removeFromPool(this);
+//             this.state.shouldRender = true;
+//         }
+//
+//         componentWillReceiveProps (newProps) {
+//             this.operate(newProps);
+//         }
+//
+//         shouldComponentUpdate (newProps, newState) {
+//             if (this.state.shouldRender !== newState.shouldRender) {
+//                 return true;
+//             }
+//             const {
+//                 ready,
+//                 stall,
+//                 weight,
+//                 placeholder,
+//                 ...nonHocProps
+//             } = newProps;
+//             for (const key in nonHocProps) {
+//                 if (nonHocProps[key] !== this.props[key]) {
+//                     return true;
+//                 }
+//             }
+//             return false;
+//         }
+//
+//         operate (newProps) {
+//             const {ready = _ready} = newProps;
+//             if (!this.state.shouldRender && ready) {
+//                 const {stall = _stall, weight = _weight} = newProps;
+//
+//                 if (stall) {
+//                     addToPool(weight, this)
+//                         .then(() => {
+//                             if (!this.state.shouldRender) {
+//                                 this.setState({
+//                                     shouldRender: true
+//                                 });
+//                             }
+//                         });
+//                     return;
+//                 }
+//
+//                 removeFromPool(this);
+//
+//                 if (this.state.shouldRender === false) {
+//                     this.setState({
+//                         shouldRender: true
+//                     });
+//                 } else {
+//                     this.state.shouldRender = true;
+//                 }
+//             }
+//         }
+//
+//         render () {
+//             if (this.state.shouldRender) {
+//                 const {
+//                     ready,
+//                     stall,
+//                     weight,
+//                     placeholder,
+//                     children,
+//                     ...componentProps
+//                 } = this.props;
+//                 return (<WrappedComponent {...componentProps}>
+//                     {children}
+//                 </WrappedComponent>);
+//             }
+//
+//             const {placeholder = _placeholder} = this.props;
+//             return placeholder ? placeholder(this.props) : null;
+//         }
+//     }
+//
+//     Delay.propTypes = {
+//         placeholder: PropTypes.func,
+//         ready: PropTypes.bool,
+//         stall: PropTypes.bool,
+//         weight: PropTypes.number
+//     };
+//
+//     if (typeof ready === 'function' || typeof stall === 'function' || typeof weight === 'function') {
+//         const mapStateToProps = (state, props) => {
+//             const result = {};
+//             if (typeof ready === 'function') {
+//                 result.ready = ready(state, props);
+//             }
+//             if (typeof stall === 'function') {
+//                 result.stall = stall(state, props);
+//             }
+//             if (typeof weight === 'function') {
+//                 result.weight = weight(state, props);
+//             }
+//             return result;
+//         };
+//         return connect(mapStateToProps)(Delay);
+//     }
+//     return Delay;
+// };
 
 Delay.loadingState = loadingState;
 Delay.fetching = fetching;
