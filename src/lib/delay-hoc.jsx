@@ -114,13 +114,13 @@ const loading = state => (
 // A set of extra HOCs to handle some annoying details of this interface.
 
 const loadNull = function (load) {
-    return function () {
+    return function loadNull () {
         load();
         return null;
     };
 };
 
-const loadChildren = function ({children}) {
+const loadChildren = function loadChildren ({children}) {
     if (children) {
         children();
     }
@@ -128,64 +128,42 @@ const loadChildren = function ({children}) {
 };
 
 const loadComponent = function (load) {
-    return function ({children, ...props}) {
+    return function loadComponent ({children, ...props}) {
         const _Component = load();
         const Component = _Component.default || _Component;
         return <Component {...props}>{children}</Component>;
     };
 };
 
-class Signal {
-    constructor (ready = false) {
-        this.ready = ready;
-        this._then = [];
-    }
-
-    then (resolve, reject) {
-        if (this._then !== null) {
-            return new Promise((_resolve, _reject) => this._then.push(() => {
-                try {
-                    resolve();
-                    _resolve();
-                } catch (e) {
-                    reject(e);
-                    _reject(e);
-                }
-            }));
-        } else {
-            return new Promise(_resolve => {
-                resolve();
-                _resolve();
-            }).then(null, reject);
-        }
-    }
-
-    resolve () {
-        if (this.ready) return;
-        this.ready = true;
-        this._then.forEach(then => then());
-        this._then = null;
-    }
-}
-
 const ifElse = (test, _if, _else) => (test ? _if : _else = null);
 
 const _ChildrenReady = ({ready, children}) => ifElse(ready, children);
 
-const _elseIfReady = _Else => _If => (
-    ({ready, children, ...props}) => ifElse(
-        ready, <_If {...props}>{children}</_If>, <_Else {...props} />
+const _elseIfReady = _Else => (
+    function _elseIfReady_If (_If) {
+        return (
+            function _elseIfReady ({ready, children, ...props}) {
+                return ifElse(
+                    ready, <_If {...props}>{children}</_If>, <_Else {...props} />
+                );
+            }
+        );
+    }
+);
+
+const wrapRemove = remover => WrappedComponent => (
+    ({children, ...props}) => (
+        <WrappedComponent {...remover(props)}>{children}</WrappedComponent>
     )
 );
 
-const _Null = () => null;
+const removeSignalProp = wrapRemove(({signal, ...props}) => props);
+
+const _Null = function _Null () {return null;};
 
 const RawGate = _elseIfReady(_Null);
 
-const ReadySignal = ({signal}) => {
-    signal.resolve();
-    return null;
-};
+const Placeholder = _elseIfReady;
 
 class _ReadySet extends React.Component{
     constructor (props, args) {
@@ -213,73 +191,6 @@ class _ReadySet extends React.Component{
         }
     }
 }
-
-class _ReadyPortal extends _ReadySet {
-    constructor (props, signal = props.signal || new Signal()) {
-        super(props, {signal: signal});
-
-        this.start(props, this.args);
-
-        if (!this.state.ready === null) {
-            this.state.ready = false;
-        }
-    }
-
-    componentDidUpdate () {
-        this.start(this.props, this.args);
-    }
-
-    start (_, {signal}) {
-        signal.then(() => this.ready());
-    }
-}
-
-const _Portal = WrappedComponent => (
-    class _Portal extends _ReadyPortal {
-        constructor (props) {
-            super(props);
-        }
-
-        render () {
-            const {signal, children, ...props} = this.props;
-            const {ready} = this.state;
-            return (<WrappedComponent signal={this.args.signal} ready={ready} {...props}>
-                {children}
-            </WrappedComponent>);
-        }
-    }
-);
-
-const Portal = _Portal(_ChildrenReady);
-
-const wrapRemove = remover => WrappedComponent => (
-    ({children, ...props}) => (
-        <WrappedComponent {...remover(props)}>{children}</WrappedComponent>
-    )
-);
-
-const removeSignalProp = wrapRemove(({signal, ...props}) => props);
-
-const ReadyGate = Action => Lock => WrappedComponent => (
-    ({ready, children, ...props}) => (
-        <React.Fragment>
-            {ifElse(ready, null, <Lock {...props}><Action {...props} /></Lock>)}
-            <WrappedComponent {...props}>{children}</WrappedComponent>
-        </React.Fragment>
-    )
-);
-
-const SignalGate = Lock => WrappedComponent => (
-    _Portal(
-        ReadyGate(
-            ReadySignal
-        )(
-            removeSignalProp(Lock)
-        )(
-            _Portal(removeSignalProp(WrappedComponent))
-        )
-    )
-);
 
 class _ReadyPoolEntrant extends _ReadySet {
     constructor (props, args) {
@@ -316,33 +227,20 @@ const _Schedule = ({priority, children}) => (
 );
 
 const Schedule = WrappedComponent => (
-    ({priority, children, ...props}) => (
-        <_Schedule priority={priority}>
-            <WrappedComponent ready {...props}>{children}</WrappedComponent>
-        </_Schedule>
-    )
+    function Schedule ({priority, children, ...props}) {
+        return (
+            <_Schedule priority={priority}>
+                <WrappedComponent ready {...props}>{children}</WrappedComponent>
+            </_Schedule>
+        );
+    }
 );
 
-// const Schedule = WrappedComponent => (
-//     SignalGate(_Schedule)(WrappedComponent)
-// );
-
-const Placeholder = _elseIfReady;
-
-// const Placeholder = _Else => _If => _elseIfReady(
-//     _Else
-// )(
-//     ({children, ...props}) => <_If ready {...props}>{children}</_If>
-// );
-
-const Gate = Lock => WrappedComponent => (
-    SignalGate(Lock)(RawGate(WrappedComponent))
-);
-
-const Delay = ({ready, stall, weight, placeholder: _placeholder}) => (WrappedComponent) => {
+const Delay = ({ready, stall, weight, placeholder: _placeholder}) => function Delay (WrappedComponent) {
 
     // return WrappedComponent;
     let Delay = WrappedComponent;
+    console.log(WrappedComponent.name);
 
     // let Delay = WrappedComponent => WrappedComponent;
     if (stall) {
@@ -361,7 +259,7 @@ const Delay = ({ready, stall, weight, placeholder: _placeholder}) => (WrappedCom
         }
 
         Delay = compose(
-            connect(state => (console.log('priority', stallState(state)), {
+            connect(state => ({
                 // ready: true,
                 priority: stallState(state)
             })),
@@ -396,7 +294,7 @@ const Delay = ({ready, stall, weight, placeholder: _placeholder}) => (WrappedCom
         // )(WrappedComponent => WrappedComponent));
 
         Delay = compose(
-            connect(state => (console.log('ready', ready(state)), {
+            connect(state => ({
                 ready: ready(state)
             })),
             (_placeholder ? Placeholder(_placeholder) : RawGate)
