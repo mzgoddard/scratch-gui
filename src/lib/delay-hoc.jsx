@@ -52,14 +52,14 @@ const removeFromPool = target => {
 };
 
 const addToPool = (weight, target, _resolve) => {
+    removeFromPool(target);
+
     if (weight < 0) {
         _resolve();
         return;
     }
 
     return new Promise(resolve => {
-        removeFromPool();
-
         let i;
         for (i = pool.length - 1; i >= 0; i--) {
             if (pool[i][0] <= weight) {
@@ -114,13 +114,13 @@ const loading = state => (
 // A set of extra HOCs to handle some annoying details of this interface.
 
 const loadNull = function (load) {
-    return function loadNull () {
+    return function DelayLoadNull () {
         load();
         return null;
     };
 };
 
-const loadChildren = function loadChildren ({children}) {
+const loadChildren = function DelayLoadChildren ({children}) {
     if (children) {
         children();
     }
@@ -128,59 +128,195 @@ const loadChildren = function loadChildren ({children}) {
 };
 
 const loadComponent = function (load) {
-    return function loadComponent ({children, ...props}) {
+    return function DelayLoadComponent ({children, ...props}) {
         const _Component = load();
         const Component = _Component.default || _Component;
         return <Component {...props}>{children}</Component>;
     };
 };
 
-const ifElse = (test, _if, _else) => (test ? _if : _else = null);
+let createElement;
+let collapseElement;
 
-const _ChildrenReady = ({ready, children}) => ifElse(ready, children);
+if (process.env.NODE_ENV === 'production') {
+    createElement = (Type, props) => ({
+        __delayElement: true,
+        Type,
+        props
+    });
 
-const _elseIfReady = _Else => (
-    function _elseIfReady_If (_If) {
-        return (
-            function _elseIfReady ({ready, children, ...props}) {
-                return ifElse(
-                    ready, <_If {...props}>{children}</_If>, <_Else {...props} />
-                );
-            }
+    collapseElement = element => (
+        element && element.__delayElement ?
+            element.Type.prototype instanceof React.Component ?
+                <element.Type {...element.props} /> :
+                element.Type(element.props) :
+            element
+    );
+} else {
+    createElement = (Type, props) => <Type {...props} />;
+
+    collapseElement = element => element;
+}
+
+const ifElse = (test, _if, _else) => ((test ? _if : _else) || null);
+
+const modifyProps = modify => WrappedComponent => (
+    function DelayModifyProps (props) {
+        return collapseElement(createElement(WrappedComponent, modify(props)));
+    }
+);
+
+const condition = _condition => _If => _Else => (
+    function DelayCondition (props) {
+        return collapseElement(
+            ifElse(
+                _condition(props),
+                createElement(_If, props),
+                createElement(_Else, props)
+            )
         );
     }
 );
 
-const wrapRemove = remover => WrappedComponent => (
-    ({children, ...props}) => (
-        <WrappedComponent {...remover(props)}>{children}</WrappedComponent>
-    )
+const removeReady = modifyProps(({ready, ...props}) => props);
+//
+// const call2 = f => a => b => f(a)(b);
+//
+// const step = n => f => a => n(f(a))
+//
+// const wrap2 = f => w => step(_a => )(w) step(_b => )(_a)) step(_b => ))(w) => step(_f => )
+//
+// (f, a) => f(a)
+// (f, a, b) => (f)(w(a))(w(b))
+//
+// step()(w)(f)
+//
+// (f(w(a)))(w(b))
+// g = f(w(a))
+// h = g(w(b))
+// h = (f(w(a)))(w(b))
+// h(w) = (f(w(a)))(w(b))
+//
+// f => w => a => b =>
+// e = w => n => a => n(w(a))
+//
+// b => n(a)(b)
+// a => e(w)(b => n(a)(b))
+// e(w)(a => e(w)(b => n(a)(b)))
+// d => d(a => d(b => n(a)(b)))
+// nest2 = n => d => a => b => d(n)
+// e = w => f => a => f(w(a))
+//
+//
+//
+//
+// wrap1 = w => f => a => f(w(a))
+// wrap2 = w => f => wrap1(w)(wrap1(w)(f))
+// compose2 = c => f => c(c(f))
+// compose2(wrap1(w))(f)
+//
+//
+//
+// f(w(a))(w(b))
+// c2(w(_w))(f)
+// w1(w1(f))
+//
+//
+//
+// wrap2 = w => f => call2(wrap1(w)(f))
+// // call2(wrap1(w))
+//
+// w => f => wrap1(w)(wrap1(w)(f))
+// w => f => (w1 = wrap1(w), w1(w1(f)))
+//
+// compose(w1, w1, f)
+// wrap = w => f => compose(w1, w1)(f)
+//
+// e(w)
+//
+// call1 = f => a => f(a)
+// call2 = f => call1(call1(f))
+// call3 = f => call1(call2(f))
+//
+// g = f => w => a => f(w(a))
+// h = g => w => b => g(w(b))
+//
+// h = ( f (w(a)) )(w(b))
+//
+// w => f => x =>
+// w => f => y =>
+//
+// a =>
+// w => b => w(b)
+//
+// f => a => b => f(a)(b)
+// f => w => a => call2(f(w(a))
+// g => w => b =>
+//
+// a
+// w(a)
+// g = f(w(a))
+// h = g(w(b))
+// _ = w => f => x => f(w(a))
+// _w = w => f => _(w)(wa => _(w)(f(wa)))
+// _(w)(f(wa))
+// _(w)(wa => _(w)(f(wa)))
+//
+// g = w => f => a => f(w(a))
+// h = w => g => b => g(w(b))
+// _ = w => f => a => h(w)(g(w)(f)(?))(?)
+// _ = w => g(w)(f)(a)
+//
+// a => b => c => a(b(c))
+// a => b => c => a(b(c))
+// a => b => c => a(b(c))
+//
+// f(w)(a)(b)
+// wrap1(wrap1(f)(w)(a))(w)(b)
+
+const wrap2 = f => w => a => b => f(w(a))(w(b))
+
+const flip2 = f => a => b => f(b)(a);
+
+const conditionReady = wrap2(condition(({ready}) => ready), removeReady);
+
+const conditionNotReady = flip2(conditionReady);
+
+const ifNotReady = _Else => _If => (
+    condition(({ready}) => ready)(removeReady(_If))(removeReady(_Else))
+    // conditionReady(_If)(_Else)
 );
 
-const removeSignalProp = wrapRemove(({signal, ...props}) => props);
+const DelayNull = () => null;
 
-const _Null = function _Null () {return null;};
-
-const RawGate = _elseIfReady(_Null);
-
-const Placeholder = _elseIfReady;
-
-class _ReadySet extends React.Component{
-    constructor (props, args) {
+class PoolEntrant extends React.Component {
+    constructor (props) {
         super(props);
 
         this.state = {ready: null};
-        this.args = args;
+
+        this.start(props);
+
+        this.state.ready = this.state.ready || false;
+    }
+
+    componentWillReceiveProps (newProps) {
+        if (this.state.ready) return;
+        this.start(newProps);
     }
 
     componentWillUnmount () {
+        if (this.state.ready) return;
         this.stop();
     }
 
-    start () {}
+    start ({priority}) {
+        const start = Date.now();
+        addToPool(priority, this, () => this.ready());
+    }
 
     stop () {
-        this.state.ready = null;
+        removeFromPool(this);
     }
 
     ready () {
@@ -192,155 +328,17 @@ class _ReadySet extends React.Component{
     }
 }
 
-class _ReadyPoolEntrant extends _ReadySet {
-    constructor (props, args) {
-        super(props, args);
-
-        this.start(props, args);
-
-        if (!this.state.ready === null) {
-            this.state.ready = false;
+const schedule = WrappedComponent => (
+    class DelaySchedule extends PoolEntrant {
+        render () {
+            const {ready} = this.state;
+            return collapseElement(createElement(WrappedComponent, {
+                ready,
+                ...this.props
+            }));
         }
-    }
-
-    componentWillReceiveProps (newProps) {
-        this.start(newProps, this.args);
-    }
-}
-
-class PoolEntrant extends _ReadyPoolEntrant {
-    start ({priority}) {
-        addToPool(priority, this, () => this.ready());
-    }
-
-    stop () {
-        removeFromPool(this);
-    }
-
-    render () {
-        return this.state.ready ? this.props.children : null;
-    }
-}
-
-const _Schedule = ({priority, children}) => (
-    <PoolEntrant priority={priority}>{children}</PoolEntrant>
-);
-
-const Schedule = WrappedComponent => (
-    function Schedule ({priority, children, ...props}) {
-        return (
-            <_Schedule priority={priority}>
-                <WrappedComponent ready {...props}>{children}</WrappedComponent>
-            </_Schedule>
-        );
     }
 );
-
-const Delay = ({ready, stall, weight, placeholder: _placeholder}) => function Delay (WrappedComponent) {
-
-    // return WrappedComponent;
-    let Delay = WrappedComponent;
-    console.log(WrappedComponent.name);
-
-    // let Delay = WrappedComponent => WrappedComponent;
-    if (stall) {
-        // if (_placeholder) {
-        //     Delay = Placeholder(_placeholder)(({children}) => children);
-        // }
-
-        let weightState = weight;
-        if (typeof weight !== 'function') {
-            weightState = state => weight || 0;
-        }
-
-        let stallState = weightState;
-        if (typeof stall === 'function') {
-            stallState = state => stall(state) ? weightState(state) : -1;
-        }
-
-        Delay = compose(
-            connect(state => ({
-                // ready: true,
-                priority: stallState(state)
-            })),
-            Schedule,
-            (_placeholder ? Placeholder(_placeholder) : RawGate)
-        )(Delay);
-        // Delay = Gate(compose(
-        //     connect(state => ({
-        //         priority: stallState(state)
-        //     })),
-        //     Schedule
-        // )(Delay));
-    }
-
-    // return Delay;
-
-    if (typeof ready === 'function') {
-        // if (_placeholder) {
-        //     Delay = Placeholder(_placeholder);
-        // }
-
-        // return compose(
-        //     connect(state => ({
-        //         ready: ready(state)
-        //     })),
-        //     RawGate
-        // )(WrappedComponent);
-        // return Gate(compose(
-        //     connect(state => ({
-        //         ready: ready(state)
-        //     }))
-        // )(WrappedComponent => WrappedComponent));
-
-        Delay = compose(
-            connect(state => ({
-                ready: ready(state)
-            })),
-            (_placeholder ? Placeholder(_placeholder) : RawGate)
-        )(Delay);
-        // Delay = Gate(compose(
-        //     connect(state => ({
-        //         ready: ready(state)
-        //     }))
-        // )(Delay));
-    }
-
-    // return WrappedComponent;
-
-    return Delay;
-};
-
-// const Example = compose(
-//     Gate(
-//         compose(
-//             Gate(
-//                 compose(
-//                     connect(state => ({ready: ...})),
-//                     Placeholder(() => <Loading />)
-//                 )
-//             ),
-//             connect(state => ({priority: ...})),
-//             Schedule,
-//             Placeholder(() => <Loading />)
-//         )
-//     ),
-//     GateOnce(
-//         compose(
-//             GateOnce(state => ({priority: ...}),
-//                 compose(
-//                     Placeholder(() => <Loading />),
-//                     GateOnceEnd
-//                 )
-//             ),
-//             connect(state => ({priority: ...})),
-//             Schedule,
-//             Placeholder(() => <Loading />),
-//             GateOnceEnd
-//         )
-//     ),
-//     Load(() => require('./some-component.jsx'))
-// );
 
 // A HOC to delay rendering a part of the app. It keeps a boolean state and once
 // true will always render the passed component and props.
@@ -351,128 +349,41 @@ const Delay = ({ready, stall, weight, placeholder: _placeholder}) => function De
 //   - 0 if we should render on the next setTimeout callback
 //   - >0 if we want the delayed renders to be render from lowest to highest
 
-// const Delay = ({ready, stall, weight, placeholder: _placeholder}) => (WrappedComponent) => {
-//     const _ready = typeof ready !== 'function' ? ready : false;
-//     const _stall = typeof stall !== 'function' ? stall : false;
-//     const _weight = typeof weight !== 'function' ? weight : 0;
-//
-//     class Delay extends React.Component {
-//         constructor (props) {
-//             super(props);
-//
-//             this.state = {
-//                 shouldRender: null
-//             };
-//
-//             this.operate(this.props);
-//
-//             if (!this.state.shouldRender) {
-//                 this.state.shouldRender = false;
-//             }
-//         }
-//
-//         componentWillUnmount () {
-//             removeFromPool(this);
-//             this.state.shouldRender = true;
-//         }
-//
-//         componentWillReceiveProps (newProps) {
-//             this.operate(newProps);
-//         }
-//
-//         shouldComponentUpdate (newProps, newState) {
-//             if (this.state.shouldRender !== newState.shouldRender) {
-//                 return true;
-//             }
-//             const {
-//                 ready,
-//                 stall,
-//                 weight,
-//                 placeholder,
-//                 ...nonHocProps
-//             } = newProps;
-//             for (const key in nonHocProps) {
-//                 if (nonHocProps[key] !== this.props[key]) {
-//                     return true;
-//                 }
-//             }
-//             return false;
-//         }
-//
-//         operate (newProps) {
-//             const {ready = _ready} = newProps;
-//             if (!this.state.shouldRender && ready) {
-//                 const {stall = _stall, weight = _weight} = newProps;
-//
-//                 if (stall) {
-//                     addToPool(weight, this)
-//                         .then(() => {
-//                             if (!this.state.shouldRender) {
-//                                 this.setState({
-//                                     shouldRender: true
-//                                 });
-//                             }
-//                         });
-//                     return;
-//                 }
-//
-//                 removeFromPool(this);
-//
-//                 if (this.state.shouldRender === false) {
-//                     this.setState({
-//                         shouldRender: true
-//                     });
-//                 } else {
-//                     this.state.shouldRender = true;
-//                 }
-//             }
-//         }
-//
-//         render () {
-//             if (this.state.shouldRender) {
-//                 const {
-//                     ready,
-//                     stall,
-//                     weight,
-//                     placeholder,
-//                     children,
-//                     ...componentProps
-//                 } = this.props;
-//                 return (<WrappedComponent {...componentProps}>
-//                     {children}
-//                 </WrappedComponent>);
-//             }
-//
-//             const {placeholder = _placeholder} = this.props;
-//             return placeholder ? placeholder(this.props) : null;
-//         }
-//     }
-//
-//     Delay.propTypes = {
-//         placeholder: PropTypes.func,
-//         ready: PropTypes.bool,
-//         stall: PropTypes.bool,
-//         weight: PropTypes.number
-//     };
-//
-//     if (typeof ready === 'function' || typeof stall === 'function' || typeof weight === 'function') {
-//         const mapStateToProps = (state, props) => {
-//             const result = {};
-//             if (typeof ready === 'function') {
-//                 result.ready = ready(state, props);
-//             }
-//             if (typeof stall === 'function') {
-//                 result.stall = stall(state, props);
-//             }
-//             if (typeof weight === 'function') {
-//                 result.weight = weight(state, props);
-//             }
-//             return result;
-//         };
-//         return connect(mapStateToProps)(Delay);
-//     }
-//     return Delay;
-// };
+const Delay = ({ready, stall, weight, placeholder: Placeholder}) => function Delay (WrappedComponent) {
+
+    let Delay = WrappedComponent;
+
+    if (stall) {
+        let weightState = weight;
+        if (typeof weight !== 'function') {
+            weightState = state => (weight || 0);
+        }
+
+        let stallState = weightState;
+        if (typeof stall === 'function') {
+            stallState = state => (stall(state) ? weightState(state) : -1);
+        }
+
+        Delay = compose(
+            connect(state => ({
+                priority: stallState(state)
+            })),
+            schedule,
+            ifNotReady(Placeholder ? Placeholder : DelayNull)
+        )(Delay);
+    }
+
+    if (typeof ready === 'function') {
+        Delay = compose(
+            connect(state => ({
+                ready: ready(state)
+            })),
+            ifNotReady(Placeholder ? Placeholder : DelayNull)
+        )(Delay);
+    }
+
+    return Delay;
+};
 
 Delay.loadingState = loadingState;
 Delay.fetching = fetching;

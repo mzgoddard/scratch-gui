@@ -77,7 +77,7 @@ const lazyRender = load => {
         ready: true,
         stall: delayHOC.loading,
         weight: 2,
-        placeholder: () => <Placeholder />
+        placeholder: Placeholder
     })(delayHOC.loadComponent(load));
 };
 
