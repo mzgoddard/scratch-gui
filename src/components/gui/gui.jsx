@@ -46,8 +46,8 @@ const messages = defineMessages({
 
 // const lazyRequire = compose(
 //     delayHOC.addProps({priority: 1}),
-//     delayHOC.Schedule,
-//     delayHOC.Gate
+//     delayHOC.schedule,
+//     delayHOC.gate
 // );
 //
 // const lazyRender = load => {

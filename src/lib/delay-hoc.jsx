@@ -89,6 +89,39 @@ const addToPool = (weight, target, _resolve) => {
         });
 };
 
+// const take1 = f => a => f(a);
+// const partialRight = (f, ...b) => (...a) => f(...a, ...b);
+// const partial = (f, ...a) => (...b) => f(...a, ...b)
+//
+// const next = () => {
+//   let _nextIdleTimeout = null;
+//   return (fn, ms) => {
+//     clearTimeout(_nextIdleTimeout);
+//     _nextIdleTimeout = setTimeout(fn, ms);
+//   };
+// };
+//
+// const timer = (() => {
+//   let last = Date.now();
+//   return () => {
+//     const _last = last;
+//     const now = last = Date.now();
+//     return now - _last;
+//   };
+// })();
+//
+// const nextIdle = (timeout => test => {
+//   const cont = step => {
+//     timeout(() => step(step));
+//   };
+//   const step = test => step => {
+//     if (!test()) cont(step);
+//   };
+//   return fn => {
+//     cont(step(partial(test, fn)));
+//   };
+// })(take1(partialRight(next(), 5)))(fn => timer() < 20 && (fn(), true));
+
 // Selectors here can provide a descriptive interface for when delay arguments
 // should be which values. If we use only these common functions we can use that
 // as a way to shortcut all of the delays gates. By replacing the functions on
@@ -179,115 +212,32 @@ const condition = _condition => _If => _Else => (
 );
 
 const removeReady = modifyProps(({ready, ...props}) => props);
-//
-// const call2 = f => a => b => f(a)(b);
-//
-// const step = n => f => a => n(f(a))
-//
-// const wrap2 = f => w => step(_a => )(w) step(_b => )(_a)) step(_b => ))(w) => step(_f => )
-//
-// (f, a) => f(a)
-// (f, a, b) => (f)(w(a))(w(b))
-//
-// step()(w)(f)
-//
-// (f(w(a)))(w(b))
-// g = f(w(a))
-// h = g(w(b))
-// h = (f(w(a)))(w(b))
-// h(w) = (f(w(a)))(w(b))
-//
-// f => w => a => b =>
-// e = w => n => a => n(w(a))
-//
-// b => n(a)(b)
-// a => e(w)(b => n(a)(b))
-// e(w)(a => e(w)(b => n(a)(b)))
-// d => d(a => d(b => n(a)(b)))
-// nest2 = n => d => a => b => d(n)
-// e = w => f => a => f(w(a))
-//
-//
-//
-//
-// wrap1 = w => f => a => f(w(a))
-// wrap2 = w => f => wrap1(w)(wrap1(w)(f))
-// compose2 = c => f => c(c(f))
-// compose2(wrap1(w))(f)
-//
-//
-//
-// f(w(a))(w(b))
-// c2(w(_w))(f)
-// w1(w1(f))
-//
-//
-//
-// wrap2 = w => f => call2(wrap1(w)(f))
-// // call2(wrap1(w))
-//
-// w => f => wrap1(w)(wrap1(w)(f))
-// w => f => (w1 = wrap1(w), w1(w1(f)))
-//
-// compose(w1, w1, f)
-// wrap = w => f => compose(w1, w1)(f)
-//
-// e(w)
-//
-// call1 = f => a => f(a)
-// call2 = f => call1(call1(f))
-// call3 = f => call1(call2(f))
-//
-// g = f => w => a => f(w(a))
-// h = g => w => b => g(w(b))
-//
-// h = ( f (w(a)) )(w(b))
-//
-// w => f => x =>
-// w => f => y =>
-//
-// a =>
-// w => b => w(b)
-//
-// f => a => b => f(a)(b)
-// f => w => a => call2(f(w(a))
-// g => w => b =>
-//
-// a
-// w(a)
-// g = f(w(a))
-// h = g(w(b))
-// _ = w => f => x => f(w(a))
-// _w = w => f => _(w)(wa => _(w)(f(wa)))
-// _(w)(f(wa))
-// _(w)(wa => _(w)(f(wa)))
-//
-// g = w => f => a => f(w(a))
-// h = w => g => b => g(w(b))
-// _ = w => f => a => h(w)(g(w)(f)(?))(?)
-// _ = w => g(w)(f)(a)
-//
-// a => b => c => a(b(c))
-// a => b => c => a(b(c))
-// a => b => c => a(b(c))
-//
-// f(w)(a)(b)
-// wrap1(wrap1(f)(w)(a))(w)(b)
 
-const wrap2 = f => w => a => b => f(w(a))(w(b))
-
-const flip2 = f => a => b => f(b)(a);
-
-const conditionReady = wrap2(condition(({ready}) => ready), removeReady);
-
-const conditionNotReady = flip2(conditionReady);
+const conditionReady = condition(({ready}) => ready);
 
 const ifNotReady = _Else => _If => (
-    condition(({ready}) => ready)(removeReady(_If))(removeReady(_Else))
-    // conditionReady(_If)(_Else)
+    conditionReady(removeReady(_If))(removeReady(_Else))
 );
 
 const DelayNull = () => null;
+
+class DescendantOverride extends React.Component {
+
+}
+
+const descendantOverride = Gate => WrappedComponent => (
+    connect(state => WrappedOverride.state(state))(class WrappedOverride extends DescendantOverride {
+        render () {
+            return <Gate>
+                <WrappedComponent />
+            </Gate>;
+        }
+    })
+);
+
+const addOverrideToParent = function (parent, override) {
+
+};
 
 class PoolEntrant extends React.Component {
     constructor (props) {
