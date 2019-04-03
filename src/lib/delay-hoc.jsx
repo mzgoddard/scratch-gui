@@ -145,29 +145,24 @@ const addToPool = (weight, target, _resolve) => {
 // f = a => f(a)
 // step = fn =>
 //
-// s1 = (fn, a) => {
+// s1 = (fn, a, b = noop) => {
 //   if (fn()) {a(); return true;}
+//   else {b(); return false;}
 // }
 // s2 = (fn, again) => {
-//   fn() || again()
+//   if (fn()) {again(); return true;}
 // }
-// s3_a = (fn, again) => partial(s2, partial(s1, test, fn), again)
+// not = fn => !fn()
+// s3_a = (fn, again) => partial(s1, test, fn, again)
 // s4 = fn => {
 //   s3 = s3_a(fn, () => timeout(s3))
 //   timeout(s3)
 // }
 
 // _insertInPool = (test, ...data) => {
-//     let i;
-//     for (i = pool.length - 1; i >= 0; i--) {
-//         if (test(pool[i])) {
-//             pool.splice(i + 1, 0, data);
-//             break;
-//         }
-//     }
-//     if (i === -1) {
-//         pool.unshift(data);
-//     }
+//     let i = pool.length - 1;
+//     for (; i >= 0 && !test(pool[i]); i--) {}
+//     pool.splice(i + 1, 0, data);
 // }
 //
 // _next = () => nextInPool(() => {
@@ -197,51 +192,6 @@ const addToPool = (weight, target, _resolve) => {
 //     if (pool.length === 1) {
 //         _next();
 //     }
-// };
-//
-// const removeFromPool = target => {
-//     const old = pool.findIndex(item => item[1] === target);
-//     if (old > -1) {
-//         pool.splice(old, 1);
-//     }
-// };
-//
-// const addToPool = (weight, target, _resolve) => {
-//     removeFromPool(target);
-//
-//     if (weight < 0) {
-//         _resolve();
-//         return;
-//     }
-//
-//     return new Promise(resolve => {
-//         let i;
-//         for (i = pool.length - 1; i >= 0; i--) {
-//             if (pool[i][0] <= weight) {
-//                 pool.splice(i + 1, 0, [weight, target, resolve]);
-//                 break;
-//             }
-//         }
-//         if (i === -1) {
-//             pool.unshift([weight, target, resolve]);
-//         }
-//         if (pool.length === 1) {
-//             nextInPool(() => {
-//                 if (pool.length > 0) {
-//                     pool[0][2]();
-//                 }
-//             });
-//         }
-//     })
-//         .then(() => {
-//             removeFromPool(target);
-//             nextInPool(() => {
-//                 if (pool.length > 0) {
-//                     pool[0][2]();
-//                 }
-//             });
-//             _resolve();
-//         });
 // };
 
 // Selectors here can provide a descriptive interface for when delay arguments
