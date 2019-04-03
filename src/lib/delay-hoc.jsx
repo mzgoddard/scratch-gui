@@ -122,6 +122,128 @@ const addToPool = (weight, target, _resolve) => {
 //   };
 // })(take1(partialRight(next(), 5)))(fn => timer() < 20 && (fn(), true));
 
+// timeout
+// step = again => {
+//   if (again()) timeout(step)
+// }
+// doIf = (test, _if) => test() ? _if() : null
+// step = again => partial(doIf, again, () => timeout(step))
+// a = a => b => a(b)
+// re = () => {
+//   re()
+// }
+// a = () => {
+//   _a = () => {
+//     _a()
+//   }
+//   return _a
+// }
+// a = f => () => timeout(a(f))
+// timeout(() => timeout(() => timeout()))
+// b =
+// step = test => test() ? timeout(() => step(test)) : null
+// f = a => f(a)
+// step = fn =>
+//
+// s1 = (fn, a) => {
+//   if (fn()) {a(); return true;}
+// }
+// s2 = (fn, again) => {
+//   fn() || again()
+// }
+// s3_a = (fn, again) => partial(s2, partial(s1, test, fn), again)
+// s4 = fn => {
+//   s3 = s3_a(fn, () => timeout(s3))
+//   timeout(s3)
+// }
+
+// _insertInPool = (test, ...data) => {
+//     let i;
+//     for (i = pool.length - 1; i >= 0; i--) {
+//         if (test(pool[i])) {
+//             pool.splice(i + 1, 0, data);
+//             break;
+//         }
+//     }
+//     if (i === -1) {
+//         pool.unshift(data);
+//     }
+// }
+//
+// _next = () => nextInPool(() => {
+//     if (pool.length > 0) {
+//         const item = pool.shift();
+//         _next();
+//         item[2]();
+//     }
+// });
+//
+// const removeFromPool = target => {
+//     const old = pool.findIndex(item => item[1] === target);
+//     if (old > -1) {
+//         pool.splice(old, 1);
+//     }
+// };
+//
+// const addToPool = (weight, target, resolve) => {
+//     removeFromPool(target);
+//
+//     if (weight < 0) {
+//         _resolve();
+//         return;
+//     }
+//
+//     _insertInPool(item => (item[0] <= weight), weight, target, resolve);
+//     if (pool.length === 1) {
+//         _next();
+//     }
+// };
+//
+// const removeFromPool = target => {
+//     const old = pool.findIndex(item => item[1] === target);
+//     if (old > -1) {
+//         pool.splice(old, 1);
+//     }
+// };
+//
+// const addToPool = (weight, target, _resolve) => {
+//     removeFromPool(target);
+//
+//     if (weight < 0) {
+//         _resolve();
+//         return;
+//     }
+//
+//     return new Promise(resolve => {
+//         let i;
+//         for (i = pool.length - 1; i >= 0; i--) {
+//             if (pool[i][0] <= weight) {
+//                 pool.splice(i + 1, 0, [weight, target, resolve]);
+//                 break;
+//             }
+//         }
+//         if (i === -1) {
+//             pool.unshift([weight, target, resolve]);
+//         }
+//         if (pool.length === 1) {
+//             nextInPool(() => {
+//                 if (pool.length > 0) {
+//                     pool[0][2]();
+//                 }
+//             });
+//         }
+//     })
+//         .then(() => {
+//             removeFromPool(target);
+//             nextInPool(() => {
+//                 if (pool.length > 0) {
+//                     pool[0][2]();
+//                 }
+//             });
+//             _resolve();
+//         });
+// };
+
 // Selectors here can provide a descriptive interface for when delay arguments
 // should be which values. If we use only these common functions we can use that
 // as a way to shortcut all of the delays gates. By replacing the functions on
