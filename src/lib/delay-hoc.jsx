@@ -12,187 +12,86 @@ import {
 // This is similar to VM's TaskQueue but tries to be aware of other activity,
 // delaying execution, and uses a priority value, weight, instead of cost.
 
+const timeout = () => {
+    let _nextIdleTimeout = null;
+    return (fn, ms) => {
+        clearTimeout(_nextIdleTimeout);
+        _nextIdleTimeout = setTimeout(fn, ms);
+    };
+};
+
+const timer = (() => {
+    let last = Date.now();
+    return () => {
+        const _last = last;
+        const now = last = Date.now();
+        return now - _last;
+    };
+});
+
+const nextIdle = ((timeout, test) => (
+    fn => {
+        test();
+        const step = () => {
+            if (test()) fn();
+            else timeout(step);
+        };
+        timeout(step);
+    }
+))(
+    // Wait to call step for 5 milliseconds
+    ((timeout, ms) => step => timeout(step, ms))(timeout(), 5),
+    // Call fn if the time passed is less than 20 milliseconds
+    ((timer, max) => () => timer() < max)(timer(), 20)
+);
+
 const pool = [];
 
-const nextInPool = (function () {
-    let _nextInPoolTimeout = null;
-    let last = Date.now();
-    const step = () => {
-        if (pool.length && pool[0][0] === 0) {
-            return;
+const _next = (fn => (
+    () => nextIdle(fn)
+))(
+    () => {
+        if (pool.length > 0) {
+            const item = pool.shift();
+            _next();
+            item[2]();
         }
-        // If it took too long for our callback to occur, JS or the browser are
-        // trying to do some work. Lets wait a little more to let it run as much
-        // of that work as possible.
-        if (Date.now() - last > 20) {
-            last = Date.now();
-            return new Promise(resolve => {
-                _nextInPoolTimeout = setTimeout(resolve, 5);
-            })
-                .then(step);
-        }
-    };
-    return fn => {
-        clearTimeout(_nextInPoolTimeout);
+    }
+);
 
-        last = Date.now();
-        new Promise(resolve => {
-            _nextInPoolTimeout = setTimeout(resolve, 5);
-        })
-            .then(step)
-            .then(fn);
-    };
-}());
+const _insertInPool = (test, newItem) => {
+    const i = pool.findIndex(item => test(item, newItem));
+    pool.splice(i + 1, 0, newItem);
+}
 
-const removeFromPool = target => {
-    const old = pool.findIndex(item => item[1] === target);
-    if (old > -1) {
-        pool.splice(old, 1);
+const _removeFromPool = (test, oldItem) => {
+    const i = pool.findIndex(item => test(item, oldItem));
+    if (i > -1) pool.splice(i, 1);
+};
+
+const _callPoolNow = item => {
+    if (item[0] < 0) {
+        item[2]();
+        return true;
     }
 };
 
-const addToPool = (weight, target, _resolve) => {
-    removeFromPool(target);
-
-    if (weight < 0) {
-        _resolve();
-        return;
-    }
-
-    return new Promise(resolve => {
-        let i;
-        for (i = pool.length - 1; i >= 0; i--) {
-            if (pool[i][0] <= weight) {
-                pool.splice(i + 1, 0, [weight, target, resolve]);
-                break;
-            }
-        }
-        if (i === -1) {
-            pool.unshift([weight, target, resolve]);
-        }
-        if (pool.length === 1) {
-            nextInPool(() => {
-                if (pool.length > 0) {
-                    pool[0][2]();
-                }
-            });
-        }
-    })
-        .then(() => {
-            removeFromPool(target);
-            nextInPool(() => {
-                if (pool.length > 0) {
-                    pool[0][2]();
-                }
-            });
-            _resolve();
-        });
+const removeFromPoolTest = (item, oldItem) => (item[1] === oldItem[1]);
+const removeFromPool = (...args) => {
+    _removeFromPool(removeFromPoolTest, args);
 };
 
-// const take1 = f => a => f(a);
-// const partialRight = (f, ...b) => (...a) => f(...a, ...b);
-// const partial = (f, ...a) => (...b) => f(...a, ...b)
-//
-// const next = () => {
-//   let _nextIdleTimeout = null;
-//   return (fn, ms) => {
-//     clearTimeout(_nextIdleTimeout);
-//     _nextIdleTimeout = setTimeout(fn, ms);
-//   };
-// };
-//
-// const timer = (() => {
-//   let last = Date.now();
-//   return () => {
-//     const _last = last;
-//     const now = last = Date.now();
-//     return now - _last;
-//   };
-// })();
-//
-// const nextIdle = (timeout => test => {
-//   const cont = step => {
-//     timeout(() => step(step));
-//   };
-//   const step = test => step => {
-//     if (!test()) cont(step);
-//   };
-//   return fn => {
-//     cont(step(partial(test, fn)));
-//   };
-// })(take1(partialRight(next(), 5)))(fn => timer() < 20 && (fn(), true));
+const addToPoolTest = (item, newItem) => (item[0] <= newItem[0]);
+const addToPool = (...args) => {
+    removeFromPool(...args);
 
-// timeout
-// step = again => {
-//   if (again()) timeout(step)
-// }
-// doIf = (test, _if) => test() ? _if() : null
-// step = again => partial(doIf, again, () => timeout(step))
-// a = a => b => a(b)
-// re = () => {
-//   re()
-// }
-// a = () => {
-//   _a = () => {
-//     _a()
-//   }
-//   return _a
-// }
-// a = f => () => timeout(a(f))
-// timeout(() => timeout(() => timeout()))
-// b =
-// step = test => test() ? timeout(() => step(test)) : null
-// f = a => f(a)
-// step = fn =>
-//
-// s1 = (fn, a, b = noop) => {
-//   if (fn()) {a(); return true;}
-//   else {b(); return false;}
-// }
-// s2 = (fn, again) => {
-//   if (fn()) {again(); return true;}
-// }
-// not = fn => !fn()
-// s3_a = (fn, again) => partial(s1, test, fn, again)
-// s4 = fn => {
-//   s3 = s3_a(fn, () => timeout(s3))
-//   timeout(s3)
-// }
+    if (_callPoolNow(args)) return;
 
-// _insertInPool = (test, ...data) => {
-//     let i = pool.length - 1;
-//     for (; i >= 0 && !test(pool[i]); i--) {}
-//     pool.splice(i + 1, 0, data);
-// }
-//
-// _next = () => nextInPool(() => {
-//     if (pool.length > 0) {
-//         const item = pool.shift();
-//         _next();
-//         item[2]();
-//     }
-// });
-//
-// const removeFromPool = target => {
-//     const old = pool.findIndex(item => item[1] === target);
-//     if (old > -1) {
-//         pool.splice(old, 1);
-//     }
-// };
-//
-// const addToPool = (weight, target, resolve) => {
-//     removeFromPool(target);
-//
-//     if (weight < 0) {
-//         _resolve();
-//         return;
-//     }
-//
-//     _insertInPool(item => (item[0] <= weight), weight, target, resolve);
-//     if (pool.length === 1) {
-//         _next();
-//     }
-// };
+    _insertInPool(addToPoolTest, args);
+    if (pool.length === 1) {
+        _next();
+    }
+};
 
 // Selectors here can provide a descriptive interface for when delay arguments
 // should be which values. If we use only these common functions we can use that
@@ -218,27 +117,29 @@ const loading = state => (
 
 // A set of extra HOCs to handle some annoying details of this interface.
 
-const loadNull = function (load) {
-    return function DelayLoadNull () {
-        load();
+const loadNull = loadModule => (
+    function DelayLoadNull () {
+        loadModule();
         return null;
-    };
-};
-
-const loadChildren = function DelayLoadChildren ({children}) {
-    if (children) {
-        children();
     }
-    return null;
-};
+);
 
-const loadComponent = function (load) {
-    return function DelayLoadComponent ({children, ...props}) {
-        const _Component = load();
+const loadChildren = (
+    function DelayLoadChildren ({children}) {
+        if (children) {
+            children();
+        }
+        return null;
+    }
+);
+
+const loadComponent = loadModule => (
+    function DelayLoadComponent ({children, ...props}) {
+        const _Component = loadModule();
         const Component = _Component.default || _Component;
         return <Component {...props}>{children}</Component>;
-    };
-};
+    }
+);
 
 let createElement;
 let collapseElement;
@@ -263,53 +164,27 @@ if (process.env.NODE_ENV === 'production') {
     collapseElement = element => element;
 }
 
-const ifElse = (test, _if, _else) => ((test ? _if : _else) || null);
-
-const modifyProps = modify => WrappedComponent => (
-    function DelayModifyProps (props) {
-        return collapseElement(createElement(WrappedComponent, modify(props)));
+const ifReady = _If => _Else => (
+    function DelayIfReady ({ready, ...props}) {
+        if (ready) return collapseElement(createElement(_If, props));
+        return collapseElement(createElement(_Else, props));
     }
 );
 
-const condition = _condition => _If => _Else => (
-    function DelayCondition (props) {
-        return collapseElement(
-            ifElse(
-                _condition(props),
-                createElement(_If, props),
-                createElement(_Else, props)
-            )
-        );
-    }
-);
-
-const removeReady = modifyProps(({ready, ...props}) => props);
-
-const conditionReady = condition(({ready}) => ready);
-
-const ifNotReady = _Else => _If => (
-    conditionReady(removeReady(_If))(removeReady(_Else))
-);
+const ifNotReady = _Else => _If => ifReady(_If)(_Else);
 
 const DelayNull = () => null;
 
-class DescendantOverride extends React.Component {
+const gate = ifNotReady(DelayNull);
 
-}
+const placeholder = ifNotReady;
 
-const descendantOverride = Gate => WrappedComponent => (
-    connect(state => WrappedOverride.state(state))(class WrappedOverride extends DescendantOverride {
-        render () {
-            return <Gate>
-                <WrappedComponent />
-            </Gate>;
-        }
-    })
+const addProps = moreProps => WrappedComponent => (
+    function DelayAddProps (props) {
+        const _props = {...props, ...moreProps};
+        return collapseElement(createElement(WrappedComponent, _props));
+    }
 );
-
-const addOverrideToParent = function (parent, override) {
-
-};
 
 class PoolEntrant extends React.Component {
     constructor (props) {
@@ -333,12 +208,11 @@ class PoolEntrant extends React.Component {
     }
 
     start ({priority}) {
-        const start = Date.now();
         addToPool(priority, this, () => this.ready());
     }
 
     stop () {
-        removeFromPool(this);
+        removeFromPool(-1, this);
     }
 
     ready () {
@@ -419,3 +293,15 @@ Delay.loadComponent = loadComponent;
 
 export default Delay;
 
+export {
+    loadNull,
+    loadChildren,
+    loadComponent,
+    ifReady,
+    ifNotReady,
+    DelayNull,
+    gate,
+    placeholder,
+    addProps,
+    schedule
+};
