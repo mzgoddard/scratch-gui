@@ -85,6 +85,7 @@ const GUIComponent = props => {
         isPlayerOnly,
         isRtl,
         isShared,
+        loading,
         renderLogin,
         onClickAccountNav,
         onCloseAccountNav,
@@ -128,18 +129,7 @@ const GUIComponent = props => {
     };
 
     if (isRendererSupported === null) {
-        let canvas;
-        if (props.vm.renderer) {
-            canvas = props.vm.renderer.canvas;
-        }
-        if (!canvas) {
-            canvas = document.createElement('canvas');
-        }
-        isRendererSupported = Renderer.isSupported(canvas);
-        if (isRendererSupported && !props.vm.renderer) {
-            const renderer = new Renderer(canvas);
-            props.vm.attachRenderer(renderer);
-        }
+        isRendererSupported = Renderer.isSupported();
     }
 
     return (<MediaQuery minWidth={layout.fullSizeMinWidth}>{isFullSize => {
@@ -150,6 +140,7 @@ const GUIComponent = props => {
                 isFullScreen={isFullScreen}
                 isRendererSupported={isRendererSupported}
                 isRtl={isRtl}
+                loading={loading}
                 stageSize={STAGE_SIZE_MODES.large}
                 vm={vm}
             >
@@ -171,7 +162,9 @@ const GUIComponent = props => {
                         onRequestClose={onRequestCloseTelemetryModal}
                     />
                 ) : null}
-                <LoadingLoader />
+                {loading ? (
+                    <Loader />
+                ) : null}
                 {isCreating ? (
                     <Loader messageId="gui.loader.creating" />
                 ) : null}
@@ -261,18 +254,19 @@ const GUIComponent = props => {
                                             draggable={false}
                                             src={costumesIcon}
                                         />
-                                        {targetIsStage ?
+                                        {targetIsStage ? (
                                             <FormattedMessage
                                                 defaultMessage="Backdrops"
                                                 description="Button to get to the backdrops panel"
                                                 id="gui.gui.backdropsTab"
-                                            /> :
+                                            />
+                                        ) : (
                                             <FormattedMessage
                                                 defaultMessage="Costumes"
                                                 description="Button to get to the costumes panel"
                                                 id="gui.gui.costumesTab"
                                             />
-                                        }
+                                        )}
                                     </Tab>
                                     <Tab
                                         className={tabClassNames.tab}
@@ -300,7 +294,7 @@ const GUIComponent = props => {
                                             }}
                                             stageSize={stageSize}
                                             vm={vm}
-                                            />
+                                        />
                                     </Box>
                                     <Box className={styles.extensionButtonContainer}>
                                         <button
@@ -382,6 +376,7 @@ GUIComponent.propTypes = {
     isPlayerOnly: PropTypes.bool,
     isRtl: PropTypes.bool,
     isShared: PropTypes.bool,
+    loading: PropTypes.bool,
     onActivateCostumesTab: PropTypes.func,
     onActivateSoundsTab: PropTypes.func,
     onActivateTab: PropTypes.func,
@@ -406,6 +401,7 @@ GUIComponent.propTypes = {
     showComingSoon: PropTypes.bool,
     soundsTabVisible: PropTypes.bool,
     stageSizeMode: PropTypes.oneOf(Object.keys(STAGE_SIZE_MODES)),
+    targetIsStage: PropTypes.bool,
     telemetryModalVisible: PropTypes.bool,
     tipsLibraryVisible: PropTypes.bool,
     vm: PropTypes.instanceOf(VM).isRequired
@@ -424,6 +420,7 @@ GUIComponent.defaultProps = {
     enableCommunity: false,
     isCreating: false,
     isShared: false,
+    loading: false,
     onUpdateProjectTitle: () => {},
     showComingSoon: false,
     stageSizeMode: STAGE_SIZE_MODES.large
