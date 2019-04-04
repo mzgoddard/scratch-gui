@@ -27,13 +27,13 @@ const timer = (() => {
 });
 
 const nextIdle = ((timeout, test) => (
-    fn => {
+    function poolNextIdle (fn) {
         test();
-        const step = () => {
+        const poolIdleStep = () => {
             if (test()) fn();
-            else timeout(step);
+            else timeout(poolIdleStep);
         };
-        timeout(step);
+        timeout(poolIdleStep);
     }
 ))(
     // Wait to call step for 5 milliseconds
@@ -45,9 +45,9 @@ const nextIdle = ((timeout, test) => (
 const pool = [];
 
 const _next = (fn => (
-    () => nextIdle(fn)
+    function poolCallNextWrapped () {nextIdle(fn);}
 ))(
-    () => {
+    function poolCallNext () {
         const item = pool.shift();
         _next();
         if (item) item[2]();

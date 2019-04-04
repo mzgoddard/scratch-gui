@@ -12,6 +12,8 @@ import VideoProvider from '../lib/video/video-provider';
 import {SVGRenderer as V2SVGAdapter} from 'scratch-svg-renderer';
 import {BitmapAdapter as V2BitmapAdapter} from 'scratch-svg-renderer';
 
+import StageComponent from '../components/stage/stage.dynamic.jsx';
+
 import {
     activateColorPicker,
     deactivateColorPicker
@@ -19,12 +21,6 @@ import {
 
 const colorPickerRadius = 20;
 const dragThreshold = 3; // Same as the block drag threshold
-
-const StageComponent = delayHOC({
-    ready: true,
-    stall: delayHOC.loading,
-    weight: 2
-})(delayHOC.loadComponent(() => require('../components/stage/stage.jsx')));
 
 class Stage extends React.Component {
     constructor (props) {

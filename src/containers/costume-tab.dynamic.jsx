@@ -1,3 +1,3 @@
-import {idleWhileLoading} from '../lib/dynamic-render';
+import {idleRequireWhileLoading} from '../lib/dynamic-render';
 
-export default idleWhileLoading(() => require('./costume-tab.jsx'));
+export default idleRequireWhileLoading(() => require('./costume-tab.jsx'));

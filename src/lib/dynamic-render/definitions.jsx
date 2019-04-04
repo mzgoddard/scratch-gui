@@ -3,7 +3,7 @@ import {compose} from 'redux';
 
 import {
     addProps,
-    DelayNull,
+    Null,
     gate,
     ifNotReady,
     placeholder
@@ -19,12 +19,8 @@ import {
 } from './schedule.jsx';
 
 import {
-    loadingState,
     fetching,
-    isLoading,
-    loadingStateVisible,
-    loading,
-    targetIsStage
+    loading
 } from './selectors';
 
 const idleRequire = compose(
@@ -40,6 +36,12 @@ const idleWhileLoadingWithPriority = priority => (
         connect(state => ({priority: loading(state) ? priority : -1})),
         schedule
     )
+);
+
+const idleWhileLoading = compose(
+    idleWhileLoadingWithPriority(2),
+    gate,
+    loadComponent
 );
 
 const idleRequireWhileLoading = loadModule => (
@@ -64,21 +66,13 @@ const idleWhileLoadingAfterFetching = compose(
 
 const whileLoading = compose(
     connect(state => ({ready: loading(state)})),
-    ifNotReady(DelayNull),
+    ifNotReady(Null),
     loadComponent
 );
 
 export {
-    fetching,
-    idleRequire,
-    idleRequire as idlePlaceholder,
+    idleWhileLoading,
     idleRequireWhileLoading,
-    idleRequireWhileLoading as idleWhileLoading,
     idleWhileLoadingAfterFetching,
-    isLoading,
-    loading,
-    loadingState,
-    loadingStateVisible,
-    whileLoading,
-    whileTargetIsStage
+    whileLoading
 };

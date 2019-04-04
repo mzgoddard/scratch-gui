@@ -5,26 +5,28 @@ export {
     loadComponent,
     loadNull
 } from './load-module.jsx';
+
 export {
     addProps,
-    DelayNull,
+    Null,
     gate,
     ifNotReady,
     ifReady,
     placeholder
 } from './gate.jsx';
+
 export {
     schedule
 } from './schedule.jsx';
+
+export {
+    idleWhileLoading,
+    idleRequireWhileLoading,
+    idleWhileLoadingAfterFetching,
+    whileLoading
+} from './definitions.jsx';
+
 export {
     fetching,
-    isLoading,
-    loading,
-    loadingState,
-    loadingStateVisible,
-    idlePlaceholder,
-    idleWhileLoading,
-    idleWhileLoadingAfterFetching,
-    whileLoading,
-    whileTargetIsStage
-} from './definitions.jsx';
+    loading
+} from './selectors.js';

@@ -1,3 +1,3 @@
-import {idleWhileLoading} from '../../lib/dynamic-render';
+import {idleRequireWhileLoading} from '../../lib/dynamic-render';
 
-export default idleWhileLoading(() => require('./menu-bar.jsx'));
+export default idleRequireWhileLoading(() => require('./menu-bar.jsx'));

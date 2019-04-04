@@ -1,27 +1,8 @@
 import React from 'react';
+import {compose} from 'redux';
 
-let createElement;
-let collapseElement;
-
-if (process.env.NODE_ENV === 'production') {
-    createElement = (Type, props) => ({
-        __delayElement: true,
-        Type,
-        props
-    });
-
-    collapseElement = element => (
-        element && element.__delayElement ?
-            element.Type.prototype instanceof React.Component ?
-                <element.Type {...element.props} /> :
-                element.Type(element.props) :
-            element
-    );
-} else {
-    createElement = (Type, props) => <Type {...props} />;
-
-    collapseElement = element => element;
-}
+import {afterReady} from './after-ready.jsx';
+import {createElement, collapseElement} from './element.jsx';
 
 const ifReady = _If => _Else => (
     function DelayIfReady ({ready, ...props}) {
@@ -32,11 +13,17 @@ const ifReady = _If => _Else => (
 
 const ifNotReady = _Else => _If => ifReady(_If)(_Else);
 
-const DelayNull = () => null;
+const Null = () => null;
 
-const gate = ifNotReady(DelayNull);
+const gate = compose(
+    afterReady,
+    ifNotReady(Null)
+);
 
-const placeholder = ifNotReady;
+const placeholder = _Else => compose(
+    afterReady,
+    ifNotReady(_Else)
+);
 
 const addProps = moreProps => WrappedComponent => (
     function DelayAddProps (props) {
@@ -49,7 +36,7 @@ export {
     addProps,
     collapseElement,
     createElement,
-    DelayNull,
+    Null,
     gate,
     ifNotReady,
     ifReady,

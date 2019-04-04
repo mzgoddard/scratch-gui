@@ -1,3 +1,3 @@
-import {idleWhileLoading} from '../lib/dynamic-render';
+import {idleRequireWhileLoading} from '../lib/dynamic-render';
 
-export default idleWhileLoading(() => require('./target-pane.jsx'));
+export default idleRequireWhileLoading(() => require('./target-pane.jsx'));

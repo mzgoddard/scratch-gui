@@ -1,3 +1,7 @@
-import {idleWhileLoading} from '../lib/dynamic-render';
+import {idleRequireWhileLoading} from '../lib/dynamic-render';
 
-export default idleWhileLoading(() => require('./stage-wrapper.jsx'));
+export default idleRequireWhileLoading(() => require('./stage-wrapper.jsx'));
+
+// export {
+//     default
+// } from './stage-wrapper.jsx';

@@ -26,16 +26,10 @@ const loading = state => (
     loadingStateVisible(state)
 );
 
-const targetIsStage = state => (
-    state.scratchGui.targets.stage &&
-    state.scratchGui.targets.stage.id === state.scratchGui.targets.editingTarget
-);
-
 export {
-    loadingState,
     fetching,
     isLoading,
-    loadingStateVisible,
     loading,
-    targetIsStage
+    loadingState,
+    loadingStateVisible
 };
