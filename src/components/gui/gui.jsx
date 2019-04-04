@@ -10,8 +10,15 @@ import tabStyles from 'react-tabs/style/react-tabs.css';
 import VM from 'scratch-vm';
 import Renderer from 'scratch-render';
 
+import Blocks from '../../containers/blocks.dynamic.jsx';
+import CostumeTab from '../../containers/costume-tab.dynamic.jsx';
+import TargetPane from '../../containers/target-pane.dynamic.jsx';
+import SoundTab from '../../containers/sound-tab.dynamic.jsx';
+import StageWrapper from '../../containers/stage-wrapper.dynamic.jsx';
 import Loader from '../loader/loader.jsx';
+import LoadingLoader from '../loader/loader.dynamic.jsx';
 import Box from '../box/box.jsx';
+import MenuBar from '../menu-bar/menu-bar.dynamic.jsx';
 import CostumeLibrary from '../../containers/costume-library.jsx';
 import BackdropLibrary from '../../containers/backdrop-library.jsx';
 import Watermark from '../../containers/watermark.jsx';
@@ -27,8 +34,6 @@ import TelemetryModal from '../telemetry-modal/telemetry-modal.jsx';
 
 import layout, {STAGE_SIZE_MODES} from '../../lib/layout-constants';
 import {resolveStageSize} from '../../lib/screen-utils';
-import delayHOC from '../../lib/delay-hoc.jsx';
-import conditionHOC from '../../lib/condition-hoc.jsx';
 
 import styles from './gui.css';
 import addExtensionIcon from './icon--extensions.svg';
@@ -43,93 +48,6 @@ const messages = defineMessages({
         defaultMessage: 'Add Extension'
     }
 });
-
-// const lazyRequire = compose(
-//     delayHOC.addProps({priority: 1}),
-//     delayHOC.schedule,
-//     delayHOC.gate
-// );
-//
-// const lazyRender = load => {
-//     return compose(
-//         connect(state => ({
-//             priority: delayHOC.loading(state) ? 2 : -1
-//         })),
-//         delayHOC.Schedule,
-//         compose(
-//             delayHOC.Placeholder
-//             lazyRequire,
-//             delayHOC.loadNull
-//         )(load),
-//         delayHOC.loadComponent
-//     )(load);
-// };
-
-const lazyRequire = delayHOC({
-    ready: true,
-    stall: true,
-    weight: 1
-});
-
-const lazyRender = load => {
-    const Placeholder = lazyRequire(delayHOC.loadNull(load));
-    return delayHOC({
-        ready: true,
-        stall: delayHOC.loading,
-        weight: 2,
-        placeholder: Placeholder
-    })(delayHOC.loadComponent(load));
-};
-
-// MenuBar and TargetPane (and many other parts of the gui) don't _need_ to be
-// rendered until loading is done and we are going to reveal the gui behind the
-// loading component. So we can use delayHOC to hold off rendering until it
-// detects JS idling and render the next piece of the GUI. Or if we are done
-// loading but haven't render the pieces, we will immediately render them.
-const MenuBar = lazyRender(() => require('../menu-bar/menu-bar.jsx'));
-
-const TargetPane = lazyRender(() => require('../../containers/target-pane.jsx'));
-
-const StageWrapper = lazyRender(() => require('../../containers/stage-wrapper.jsx'));
-
-const CostumeTab = lazyRender(() => require('../../containers/costume-tab.jsx'));
-
-const SoundTab = lazyRender(() => require('../../containers/sound-tab.jsx'));
-
-// const Blocks = compose(
-//     connect(state => ({ready: !delayHOC.fetching(state)})),
-//     delayHOC.Gate,
-//     connect(state => ({priority: delayHOC.loading(state) ? 10 : -1})),
-//     delayHOC.Schedule,
-//     delayHOC.Gate
-// )(() => require('../../containers/blocks.jsx'));
-
-// Blocks is another part we don't need to render until later.
-const Blocks = delayHOC({
-    ready: state => !delayHOC.fetching(state),
-    stall: delayHOC.loading,
-    weight: 10
-})(delayHOC.loadComponent(() => require('../../containers/blocks.jsx')));
-
-// Loader is the only immediate thing in GUI depending on loading state.
-// Determine that state closer to Loader to limit the re-render due to loading
-// state change, rendering the GUI that should already be ready.
-const IsLoadingLoader = conditionHOC(conditionHOC.loading)(Loader);
-
-// StageWrapper component also depends on loading. But maybe we should similarly
-// move that test somewhere. We could make a Loader container that is the
-// condition wrapper Loader component.
-
-// Similarly the costume and backdrop tab labels depend on a property unique to
-// them from GUI's parents. Moving the test closer to the messages will limit
-// the re-render.
-const targetIsStage = state => (
-    state.scratchGui.targets.stage &&
-    state.scratchGui.targets.stage.id === state.scratchGui.targets.editingTarget
-);
-
-const StageTargetFormattedMessage = conditionHOC(targetIsStage)(FormattedMessage);
-const SpriteTargetFormattedMessage = conditionHOC(state => !targetIsStage(state))(FormattedMessage);
 
 // Cache this value to only retrieve it once the first time.
 // Assume that it doesn't change for a session.
@@ -190,6 +108,7 @@ const GUIComponent = props => {
         showComingSoon,
         soundsTabVisible,
         stageSizeMode,
+        targetIsStage,
         telemetryModalVisible,
         tipsLibraryVisible,
         vm,
@@ -252,7 +171,7 @@ const GUIComponent = props => {
                         onRequestClose={onRequestCloseTelemetryModal}
                     />
                 ) : null}
-                <IsLoadingLoader />
+                <LoadingLoader />
                 {isCreating ? (
                     <Loader messageId="gui.loader.creating" />
                 ) : null}
@@ -342,16 +261,18 @@ const GUIComponent = props => {
                                             draggable={false}
                                             src={costumesIcon}
                                         />
-                                        <StageTargetFormattedMessage
-                                            defaultMessage="Backdrops"
-                                            description="Button to get to the backdrops panel"
-                                            id="gui.gui.backdropsTab"
-                                        />
-                                        <SpriteTargetFormattedMessage
-                                            defaultMessage="Costumes"
-                                            description="Button to get to the costumes panel"
-                                            id="gui.gui.costumesTab"
-                                        />
+                                        {targetIsStage ?
+                                            <FormattedMessage
+                                                defaultMessage="Backdrops"
+                                                description="Button to get to the backdrops panel"
+                                                id="gui.gui.backdropsTab"
+                                            /> :
+                                            <FormattedMessage
+                                                defaultMessage="Costumes"
+                                                description="Button to get to the costumes panel"
+                                                id="gui.gui.costumesTab"
+                                            />
+                                        }
                                     </Tab>
                                     <Tab
                                         className={tabClassNames.tab}
