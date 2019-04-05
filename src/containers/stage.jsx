@@ -5,13 +5,14 @@ import Renderer from 'scratch-render';
 import VM from 'scratch-vm';
 import {connect} from 'react-redux';
 
+import delayHOC from '../lib/delay-hoc.jsx';
 import {STAGE_DISPLAY_SIZES} from '../lib/layout-constants';
 import {getEventXY} from '../lib/touch-utils';
 import VideoProvider from '../lib/video/video-provider';
 import {SVGRenderer as V2SVGAdapter} from 'scratch-svg-renderer';
 import {BitmapAdapter as V2BitmapAdapter} from 'scratch-svg-renderer';
 
-import StageComponent from '../components/stage/stage.jsx';
+import StageComponent from '../components/stage/stage.dynamic.jsx';
 
 import {
     activateColorPicker,
