@@ -1,3 +1,5 @@
+import '../time-start';
+
 import React from 'react';
 import ReactDOM from 'react-dom';
 import {compose} from 'redux';
