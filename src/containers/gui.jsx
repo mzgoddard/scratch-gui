@@ -36,8 +36,10 @@ import vmListenerHOC from '../lib/vm-listener-hoc.jsx';
 import vmManagerHOC from '../lib/vm-manager-hoc.jsx';
 import cloudManagerHOC from '../lib/cloud-manager-hoc.jsx';
 
-import GUIComponent from '../components/gui/gui.jsx';
+// import GUIComponent from '../components/gui/gui.jsx';
 import {setIsScratchDesktop} from '../lib/isScratchDesktop.js';
+
+import VideoProvider from '../lib/video/video-provider';
 
 const messages = defineMessages({
     defaultProjectTitle: {
@@ -52,6 +54,40 @@ class GUI extends React.Component {
         setIsScratchDesktop(this.props.isScratchDesktop);
         this.setReduxTitle(this.props.projectTitle);
         this.props.onStorageInit(storage);
+
+        // Use setTimeout. Do not use requestAnimationFrame or a resolved
+        // Promise. We want this work delayed until after the data request is
+        // made.
+        setTimeout(() => {
+            if (this.props.vm.renderer) {
+                return;
+            }
+
+            // Wait to load svg-renderer and render after the data request. This
+            // way the data request is made earlier.
+            const Renderer = require('scratch-render');
+            const {
+                SVGRenderer: V2SVGAdapter,
+                BitmapAdapter: V2BitmapAdapter
+            } = require('scratch-svg-renderer');
+
+            const vm = this.props.vm;
+            this.canvas = document.createElement('canvas');
+            this.renderer = new Renderer(this.canvas);
+            vm.attachRenderer(this.renderer);
+
+            vm.attachV2SVGAdapter(new V2SVGAdapter());
+            vm.attachV2BitmapAdapter(new V2BitmapAdapter());
+
+            // Only attach a video provider once because it is stateful
+            vm.setVideoProvider(new VideoProvider());
+
+            // Calling draw a single time before any project is loaded just
+            // makes the canvas white instead of solid black–needed because it
+            // is not possible to use CSS to style the canvas to have a
+            // different default color
+            vm.renderer.draw();
+        });
     }
     componentDidUpdate (prevProps) {
         if (this.props.projectId !== prevProps.projectId && this.props.projectId !== null) {
@@ -85,6 +121,7 @@ class GUI extends React.Component {
             assetHost,
             cloudHost,
             error,
+            fontsLoaded,
             isError,
             isScratchDesktop,
             isShowingProject,
@@ -102,6 +139,17 @@ class GUI extends React.Component {
             loadingStateVisible,
             ...componentProps
         } = this.props;
+
+        // TODO: Determine if we finished loading previously. In which case we
+        // should render the GUI anyways with a loading screen here or in the
+        // GUI. Otherwise we will unload the GUI when we switch projects (such
+        // as with "Load from your computer").
+        if (!fontsLoaded || fetchingProject || isLoading) {
+            // TODO: Render a loading screen.
+            return null;
+        }
+
+        const GUIComponent = require('../components/gui/gui.jsx').default;
         return (
             <GUIComponent
                 loading={fetchingProject || isLoading || loadingStateVisible}
@@ -119,6 +167,7 @@ GUI.propTypes = {
     cloudHost: PropTypes.string,
     error: PropTypes.oneOfType([PropTypes.object, PropTypes.string]),
     fetchingProject: PropTypes.bool,
+    fontsLoaded: PropTypes.bool,
     intl: intlShape,
     isError: PropTypes.bool,
     isLoading: PropTypes.bool,
@@ -157,6 +206,7 @@ const mapStateToProps = state => {
         costumeLibraryVisible: state.scratchGui.modals.costumeLibrary,
         costumesTabVisible: state.scratchGui.editorTab.activeTabIndex === COSTUMES_TAB_INDEX,
         error: state.scratchGui.projectState.error,
+        fontsLoaded: state.scratchGui.fontsLoaded,
         isError: getIsError(loadingState),
         isFullScreen: state.scratchGui.mode.isFullScreen,
         isPlayerOnly: state.scratchGui.mode.isPlayerOnly,
